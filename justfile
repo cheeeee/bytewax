@@ -88,7 +88,7 @@ test-py tests=pytests: _assert-venv
 
 # Run the Python benchmarks; runs in CI
 test-benchmark:
-    pytest --codspeed pytests/
+    pytest --codspeed --codspeed-mode walltime pytests/
 
 # Test all code in the documentation; runs in CI
 test-doc: _assert-venv
