@@ -107,6 +107,8 @@ jobs:
           . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
           uv pip install -v --no-deps $WHEEL_FILE
+      - name: Add cargo bin to PATH
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v4
         with:
