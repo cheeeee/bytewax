@@ -154,6 +154,10 @@ impl StatefulPartition {
 
 impl Drop for StatefulPartition {
     fn drop(&mut self) {
+        #[cfg(Py_3_13)]
+        if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
+            return;
+        }
         unwrap_any!(
             Python::with_gil(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
         );
@@ -476,6 +480,10 @@ impl StatelessPartition {
 
 impl Drop for StatelessPartition {
     fn drop(&mut self) {
+        #[cfg(Py_3_13)]
+        if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
+            return;
+        }
         unwrap_any!(Python::with_gil(|py| self
             .close(py)
             .reraise("error closing StatelessSinkPartition")));
