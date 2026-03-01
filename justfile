@@ -87,12 +87,8 @@ test-py tests=pytests: _assert-venv
     pytest --benchmark-skip {{tests}}
 
 # Run the Python benchmarks; runs in CI
-# `|| test $? -eq 139` tolerates SIGSEGV during Python 3.13+ interpreter
-# shutdown — a known PyO3 issue where Py<T>::Drop calls Py_DECREF after
-# finalization has freed type objects.  All benchmarks have already passed
-# and CodSpeed has captured the results before the segfault occurs.
 test-benchmark:
-    pytest --codspeed --codspeed-mode walltime pytests/ || test $? -eq 139
+    pytest --codspeed --codspeed-mode walltime pytests/
 
 # Test all code in the documentation; runs in CI
 test-doc: _assert-venv
