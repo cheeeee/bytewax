@@ -481,13 +481,23 @@ class _KafkaSinkPartition(
                 err = f"No topic to produce to for {msg}"
                 raise RuntimeError(err)
 
-            self._producer.produce(
-                value=msg.value,
-                key=msg.key,
-                headers=msg.headers,
-                topic=topic,
-                timestamp=msg.timestamp,
-            )
+            try:
+                self._producer.produce(
+                    value=msg.value,
+                    key=msg.key,
+                    headers=msg.headers,
+                    topic=topic,
+                    timestamp=msg.timestamp,
+                )
+            except BufferError:
+                self._producer.flush()
+                self._producer.produce(
+                    value=msg.value,
+                    key=msg.key,
+                    headers=msg.headers,
+                    topic=topic,
+                    timestamp=msg.timestamp,
+                )
             self._producer.poll(0)
         self._producer.flush()
 
