@@ -381,6 +381,7 @@ class KafkaSource(
         }
         config.update(self._add_config)
         client = AdminClient(config)
+        client.poll(0)  # Trigger any pending callbacks (e.g. OAUTHBEARER)
 
         return list(_list_parts(client, self._topics))
 
