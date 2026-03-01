@@ -113,6 +113,8 @@ jobs:
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v4
+        env:
+          CODSPEED_BENCHMARK_PREFIX: py${{ matrix.python-version }}
         with:
           mode: walltime
           token: ${{ secrets.CODSPEED_TOKEN }}
