@@ -83,6 +83,8 @@ jobs:
     # No container — runs on bare metal for direct perf_event_open access
     steps:
       - uses: actions/checkout@v3
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
