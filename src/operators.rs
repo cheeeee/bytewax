@@ -456,8 +456,9 @@ where
 struct StatefulBatchLogic(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatefulBatchLogic {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for StatefulBatchLogic {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
             .import("bytewax.operators")?
@@ -467,7 +468,7 @@ impl<'py> FromPyObject<'py> for StatefulBatchLogic {
                 "logic must subclass `bytewax.operators.StatefulBatchLogic`",
             ))
         } else {
-            Ok(Self(SafePy::from(ob.clone().unbind())))
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -477,8 +478,9 @@ enum IsComplete {
     Discard,
 }
 
-impl<'py> FromPyObject<'py> for IsComplete {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for IsComplete {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if ob.extract::<bool>().reraise_with(|| {
             format!(
                 "`is_complete` was not a `bool`; got a `{}` instead",
@@ -537,12 +539,14 @@ impl StatefulBatchLogic {
 
     fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
         let res = self.0.bind(py).call_method0(intern!(py, "notify_at"))?;
-        res.extract().reraise_with(|| {
-            format!(
-                "did not return a `datetime`; got a `{}` instead",
-                unwrap_any!(res.get_type().qualname())
-            )
-        })
+        res.extract::<Option<DateTime<Utc>>>()
+            .map_err(Into::<PyErr>::into)
+            .reraise_with(|| {
+                format!(
+                    "did not return a `datetime`; got a `{}` instead",
+                    unwrap_any!(res.get_type().qualname())
+                )
+            })
     }
 
     fn snapshot(&self, py: Python) -> PyResult<PyObject> {

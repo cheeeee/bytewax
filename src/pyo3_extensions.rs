@@ -213,8 +213,9 @@ pub(crate) struct TdPyCallable(SafePy<PyAny>);
 
 /// Have PyO3 do type checking to ensure we only make from callable
 /// objects.
-impl<'py> FromPyObject<'py> for TdPyCallable {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for TdPyCallable {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if ob.is_callable() {
             let py = ob.py();
             Ok(Self(SafePy::from(ob.as_unbound().clone_ref(py))))
