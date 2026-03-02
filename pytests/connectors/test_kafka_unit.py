@@ -3,7 +3,12 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from bytewax.connectors.kafka import KafkaSink, KafkaSinkMessage, KafkaSource, _KafkaSinkPartition
+from bytewax.connectors.kafka import (
+    KafkaSink,
+    KafkaSinkMessage,
+    KafkaSource,
+    _KafkaSinkPartition,
+)
 
 
 class TestKafkaSinkBufferError:
