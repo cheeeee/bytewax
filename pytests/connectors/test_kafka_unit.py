@@ -176,6 +176,20 @@ class TestKafkaGroupIdLeak:
         assert config["security.protocol"] == "SASL_SSL"
         assert config["group.id"] == "BYTEWAX_IGNORED"
 
+    @patch("bytewax.connectors.kafka._KafkaSourcePartition")
+    def test_build_part_enforces_auto_commit_false(self, mock_partition_cls):
+        """enable.auto.commit=false cannot be overridden by user config."""
+        source = KafkaSource(
+            ["localhost:9092"],
+            ["test-topic"],
+            tail=False,
+            add_config={"enable.auto.commit": "true"},
+        )
+        source.build_part("step-1", "0-test-topic", None)
+
+        config = mock_partition_cls.call_args[0][1]
+        assert config["enable.auto.commit"] == "false"
+
     @patch("bytewax.connectors.kafka.Producer")
     def test_kafka_sink_strips_group_id(self, mock_producer_cls):
         """group.id is stripped from Producer config."""
