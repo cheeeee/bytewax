@@ -120,4 +120,13 @@ jobs:
           token: ${{ secrets.CODSPEED_TOKEN }}
           run: |
             . venv/bin/activate
+            set +e
             just test-benchmark
+            rc=$?
+            set -e
+            if [ $rc -eq 139 ]; then
+              echo "::error::SIGSEGV (exit 139) during benchmarks — SafePy<T> finalization guard may have regressed"
+              exit 139
+            elif [ $rc -ne 0 ]; then
+              exit $rc
+            fi
