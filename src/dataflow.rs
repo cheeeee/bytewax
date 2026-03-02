@@ -110,7 +110,7 @@ impl Operator {
             .getattr(port_name)
             .reraise_with(|| format!("operator did not have MultiPort {port_name:?}"))?
             .getattr("stream_ids")?;
-        let stream_ids = binding.downcast::<PyDict>()?;
+        let stream_ids = binding.cast::<PyDict>()?;
         stream_ids.values().extract()
     }
 }

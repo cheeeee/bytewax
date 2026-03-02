@@ -64,7 +64,7 @@ where
                 let mut trues_handle = trues_output.activate();
                 let mut falses_handle = falses_output.activate();
 
-                Python::with_gil(|py| {
+                Python::attach(|py| {
                     self_handle.for_each(|time, data| {
                         data.swap(&mut inbuf);
                         let mut trues_session = trues_handle.session(&time);
@@ -196,7 +196,7 @@ where
                                 item_inp_count.add(batch.len() as u64, &labels);
                                 let mut downstream_session = downstream_handle.session(cap);
 
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     let batch: Vec<_> =
                                         batch.into_iter().map(PyObject::from).collect();
                                     let mapper = mapper.bind(py);
@@ -282,7 +282,7 @@ where
                                     downstream_handle.session(downstream_cap);
                                 let mut clock_session = clock_handle.session(clock_cap);
 
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     let inspector = inspector.bind(py);
 
                                     for item in items.iter() {
@@ -384,7 +384,7 @@ where
             move |_frontiers| {
                 let mut downstream_handle = downstream_output.activate();
 
-                Python::with_gil(|py| {
+                Python::attach(|py| {
                     self_handle.for_each(|time, data| {
                         data.swap(&mut inbuf);
                         let mut downstream_session = downstream_handle.session(&time);
@@ -432,7 +432,7 @@ where
             let value = PyObject::from(value);
 
             let item: PyObject =
-                Python::with_gil(|py| (key, value).into_pyobject(py).unwrap().unbind().into());
+                Python::attach(|py| (key, value).into_pyobject(py).unwrap().unbind().into());
 
             TdPyAny::from(item)
         })
@@ -765,7 +765,7 @@ where
                                     keyed_items.entry(key).or_default().push(PyObject::from(value));
                                 }
 
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     let builder = builder.bind(py);
 
                                     for (key, values) in keyed_items {
@@ -817,7 +817,7 @@ where
                                 .map(|(key, sched)| (key.clone(), *sched))
                                 .collect();
                             if !notify_keys.is_empty() {
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     for (key, _sched) in notify_keys {
                                         // We should always have a
                                         // logic for anything in
@@ -866,7 +866,7 @@ where
                             if input_frontiers.is_eof() {
                                 let mut discarded_keys = Vec::new();
 
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     for (key, logic) in logics.iter() {
                                         let (output, is_complete) = with_timer!(
                                             on_eof_histogram,
@@ -901,7 +901,7 @@ where
                             // update the next scheduled notification
                             // times.
                             if !awoken_keys_this_activation.is_empty() {
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     for key in awoken_keys_this_activation.iter() {
                                         // It's possible the logic was
                                         // discarded on a previous
@@ -943,7 +943,7 @@ where
                                 // Go through all keys awoken in this
                                 // epoch. This might involve keys from the
                                 // previous activation.
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     // Finally drain
                                     // `awoken_keys_buffer` since the
                                     // epoch is over.
@@ -975,7 +975,7 @@ where
                                 }));
 
                                 if let Some(loads) = loads_inbuf.remove(&epoch) {
-                                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                         let builder = builder.bind(py);
 
                                         for (worker, (key, change)) in loads {

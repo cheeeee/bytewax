@@ -160,7 +160,7 @@ impl Drop for StatefulPartition {
             return;
         }
         unwrap_any!(
-            Python::with_gil(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
+            Python::attach(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
         );
     }
 }
@@ -183,7 +183,7 @@ impl PartitionFn<StateKey> for PartitionAssigner {
         // IO operators, we don't have access to batches. TBH probably
         // this will go away with 2PC being worked into `stateful`
         // operator in Python.
-        unwrap_any!(Python::with_gil(|py| self.part_fn(py, key))
+        unwrap_any!(Python::attach(|py| self.part_fn(py, key))
             .reraise("error assigning output partition"))
     }
 }
@@ -312,7 +312,7 @@ where
                             // need to ensure that writes happen in epoch
                             // order.
                             if let Some(part_to_items) = items_inbuf.remove(epoch) {
-                                Python::with_gil(|py| {
+                                Python::attach(|py| {
                                     for (part_key, items) in part_to_items {
                                         let part = parts
                                             .entry(part_key.clone())
@@ -363,7 +363,7 @@ where
                                 let state = with_timer!(
                                     snapshot_histogram,
                                     labels,
-                                    unwrap_any!(Python::with_gil(|py| part
+                                    unwrap_any!(Python::attach(|py| part
                                         .snapshot(py)
                                         .reraise("error snapshotting StatefulSink")))
                                 );
@@ -382,7 +382,7 @@ where
                                     if worker == this_worker {
                                         match change {
                                             StateChange::Upsert(state) => {
-                                                let part = unwrap_any!(Python::with_gil(|py| {
+                                                let part = unwrap_any!(Python::attach(|py| {
                                                     sink.build_part(
                                                         py,
                                                         &step_id,
@@ -485,7 +485,7 @@ impl Drop for StatelessPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(Python::with_gil(|py| self
+        unwrap_any!(Python::attach(|py| self
             .close(py)
             .reraise("error closing StatelessSinkPartition")));
     }
@@ -555,7 +555,7 @@ where
                         with_timer!(
                             write_batch_histogram,
                             &labels,
-                            unwrap_any!(Python::with_gil(|py| sink
+                            unwrap_any!(Python::attach(|py| sink
                                 .write_batch(py, batch)
                                 .reraise("error writing output batch")))
                         );

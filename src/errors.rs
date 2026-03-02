@@ -32,7 +32,7 @@ pub(crate) trait PythonException<T> {
     {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
-            Python::with_gil(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, msg)))
+            Python::attach(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, msg)))
         })
     }
 
@@ -52,7 +52,7 @@ pub(crate) trait PythonException<T> {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             let msg = f();
-            Python::with_gil(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, &msg)))
+            Python::attach(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, &msg)))
         })
     }
 
@@ -71,7 +71,7 @@ pub(crate) trait PythonException<T> {
     {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let new_err = BytewaxRuntimeError::new_err(format!("({caller}): {msg}"));
                 new_err.set_cause(py, Some(err));
                 new_err
@@ -95,7 +95,7 @@ pub(crate) trait PythonException<T> {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             let msg = f();
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let new_err = BytewaxRuntimeError::new_err(format!("({caller}): {msg}"));
                 new_err.set_cause(py, Some(err));
                 new_err

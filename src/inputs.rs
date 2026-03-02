@@ -326,7 +326,7 @@ impl FixedPartitionedSource {
                         // to where this execution should start.
                         let emit_epoch = std::cmp::max(*load_epoch, start_at.0);
 
-                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                        unwrap_any!(Python::attach(|py| -> PyResult<()> {
                             for (worker, (part_key, change)) in tmp.drain(..) {
                                 assert!(worker == this_worker);
 
@@ -392,7 +392,7 @@ impl FixedPartitionedSource {
                             // load stream. But it's fine since we're
                             // never going to open up the loads stream
                             // again.
-                            unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                            unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                 for part_key in &primary_parts {
                                     if !parts.contains_key(part_key) {
                                         tracing::info!("Init-ing {part_key:?} at epoch {epoch:?}");
@@ -441,7 +441,7 @@ impl FixedPartitionedSource {
                                 // this input, even if it hasn't been
                                 // awoken to prevent dataflow stall.
                                 if part_state.awake_due(now) {
-                                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                         let batch_res = with_timer!(
                                             next_batch_histogram,
                                             labels,
@@ -497,7 +497,7 @@ impl FixedPartitionedSource {
                                 // get cascading advancement and never
                                 // poll input.
                                 if now - part_state.epoch_started >= epoch_interval.0 || eof {
-                                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                         let state = with_timer!(
                                             snapshot_histogram,
                                             labels,
@@ -624,7 +624,7 @@ impl Drop for StatefulPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(Python::with_gil(|py| self
+        unwrap_any!(Python::attach(|py| self
             .close(py)
             .reraise("error closing StatefulSourcePartition")));
     }
@@ -733,7 +733,7 @@ impl DynamicSource {
             init_caps.downgrade_all(&start_at.0);
             let output_cap = init_caps.pop().unwrap();
 
-            let next_awake = unwrap_any!(Python::with_gil(|py| part
+            let next_awake = unwrap_any!(Python::attach(|py| part
                 .next_awake(py)
                 .reraise("error getting next awake time")));
             let mut part_state = Some(DynamicPartState {
@@ -764,7 +764,7 @@ impl DynamicSource {
                             // input, even if it hasn't been awoken to
                             // prevent dataflow stall.
                             if part_state.awake_due(now) {
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     let res = with_timer!(
                                         next_batch_histogram,
                                         labels,
@@ -901,7 +901,7 @@ impl Drop for StatelessPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(Python::with_gil(|py| self
+        unwrap_any!(Python::attach(|py| self
             .close(py)
             .reraise("error closing StatelessSourcePartition")));
     }
