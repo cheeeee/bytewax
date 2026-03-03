@@ -186,8 +186,9 @@ impl PartitionFn<StateKey> for PartitionAssigner {
         // IO operators, we don't have access to batches. TBH probably
         // this will go away with 2PC being worked into `stateful`
         // operator in Python.
-        unwrap_any!(Python::attach(|py| self.part_fn(py, key))
-            .reraise("error assigning output partition"))
+        unwrap_any!(
+            Python::attach(|py| self.part_fn(py, key)).reraise("error assigning output partition")
+        )
     }
 }
 
