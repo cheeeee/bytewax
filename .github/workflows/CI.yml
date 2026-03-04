@@ -50,6 +50,8 @@ jobs:
     # buildpack-deps:22.04 includes gcc, make, pkg-config, libssl-dev, git, curl.
     container:
       image: buildpack-deps:22.04
+    env:
+      UV_LINK_MODE: copy
     steps:
       - name: Fix workspace permissions
         run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
@@ -166,6 +168,8 @@ jobs:
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
         - /usr/bin/docker:/usr/bin/docker
+    env:
+      UV_LINK_MODE: copy
     # Kafka service container for integration tests (KRaft mode, no Zookeeper).
     # Only used for x86_64 tests (cross-compiled targets skip tests).
     services:
@@ -221,6 +225,10 @@ jobs:
           uv venv -p ${{ matrix.python-version }} venv/
           . venv/bin/activate
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      # maturin-action writes a temp script and bind-mounts it into Docker.
+      # Stale directories at this path from prior runs cause "is a directory" errors.
+      - name: Clean stale maturin build scripts
+        run: rm -rf "/__w/_temp/run-maturin-action.sh" 2>/dev/null || true
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:

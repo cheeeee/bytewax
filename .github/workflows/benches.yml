@@ -22,6 +22,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     container:
       image: buildpack-deps:22.04
+    env:
+      UV_LINK_MODE: copy
     steps:
       - name: Fix workspace permissions
         run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
@@ -56,6 +58,8 @@ jobs:
           uv venv -p ${{ matrix.python-version }} venv/
           . venv/bin/activate
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Clean stale maturin build scripts
+        run: rm -rf "/__w/_temp/run-maturin-action.sh" 2>/dev/null || true
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
