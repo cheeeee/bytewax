@@ -51,6 +51,10 @@ jobs:
     container:
       image: buildpack-deps:22.04
     steps:
+      - name: Fix workspace permissions
+        run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+      - name: Create sudo wrapper
+        run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
       - name: Checkout
         uses: actions/checkout@v6
       # actions/checkout sets safe.directory in a temp HOME; re-set it
@@ -74,10 +78,12 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "requirements/**"
       - run: uv python install
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
       - uses: extractions/setup-just@v3
       # Need this because we're running `cargo clippy` and `fmt`
       # directly.
       - uses: dsherret/rust-toolchain-file@v1
+      - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
       - name: Install cbfmt
         run: |
             mkdir /tmp/cbfmt && cd $_
@@ -91,7 +97,7 @@ jobs:
       - name: Prep pre-commit venv
         shell: bash
         run: |
-          uv venv -p 3.12 venv
+          uv venv -p 3.12 venv/
           . venv/bin/activate
           uv pip install pre-commit ruff
       - name: Check pre-commit hooks
@@ -99,12 +105,32 @@ jobs:
         run: |
           . venv/bin/activate
           just lint-pc
-      # Full venv with bytewax (triggers Rust compilation via -e .)
-      - name: Prep full venv
+      # Build wheel via maturin-action (uses sccache, avoids OOM from
+      # in-process cargo build during `uv pip sync -e .`)
+      - name: Prep build venv
         shell: bash
         run: |
           . venv/bin/activate
-          uv pip sync --strict requirements/dev.txt
+          uv pip sync --strict requirements/build-py3.12.txt
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: -C force-frame-pointers=yes
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
+        with:
+          target: x86_64
+          args: --release --out dist/ -i 3.12
+          sccache: true
+      - name: Install wheel and dev dependencies
+        shell: bash
+        run: |
+          . venv/bin/activate
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
+          # Install all pinned dev deps except `-e .` (bytewax already installed from wheel)
+          sed '/^-e /d' requirements/dev.txt > /tmp/dev-deps.txt
+          uv pip install -r /tmp/dev-deps.txt
       - name: Run lints
         shell: bash
         run: |

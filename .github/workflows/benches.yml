@@ -83,7 +83,7 @@ jobs:
       max-parallel: 1
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, Intel]
     # No container — runs on bare metal for direct perf_event_open access
     steps:
       - name: Fix workspace permissions
