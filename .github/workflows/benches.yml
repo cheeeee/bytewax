@@ -27,10 +27,10 @@ jobs:
         run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
       - name: Create sudo wrapper
         run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -39,10 +39,13 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+          cache-dependency-glob: "requirements/**"
       - run: uv python install
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
       - uses: dsherret/rust-toolchain-file@v1
@@ -56,6 +59,7 @@ jobs:
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
+          CARGO_INCREMENTAL: "0"
           RUSTFLAGS: -C force-frame-pointers=yes
           PIP_BREAK_SYSTEM_PACKAGES: "1"
         with:
@@ -63,7 +67,7 @@ jobs:
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
       - name: Upload wheel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bench-wheel-${{ matrix.python-version }}
           path: dist/*.whl
@@ -86,18 +90,19 @@ jobs:
         run: |
           chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
           rm -rf "${{ github.workspace }}/venv" "${{ github.workspace }}/.ruff_cache" 2>/dev/null || true
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+          cache-dependency-glob: "requirements/**"
       - run: uv python install
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v3
       - name: Download wheel
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: bench-wheel-${{ matrix.python-version }}
           path: dist/
