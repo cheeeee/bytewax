@@ -230,19 +230,31 @@ jobs:
             uv cache clean
             uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
           }
-      # maturin-action writes a temp script to $RUNNER_TEMP/run-maturin-action.sh
-      # and bind-mounts it into Docker for cross-compilation. If a previous job
-      # crashed before cleanup, Docker may have auto-created a directory at this
-      # path (bind-mounting a non-existent file creates a directory). Remove stale
-      # directories so the next maturin-action run can create a file there.
+      # Cross-compile targets (aarch64, armv7) use Docker-in-Docker via
+      # maturin-action. The action creates a script at $RUNNER_TEMP/run-maturin-action.sh
+      # but Docker (on the host) bind-mounts it via /__w/_temp/. The pre-pull job
+      # creates the /__w -> /opt/actions-runner/_work symlink on ONE runner; ensure
+      # it exists on THIS runner too.
+      - name: Ensure Docker-in-Docker path symlink
+        if: ${{ matrix.target != 'x86_64' }}
+        run: |
+          docker run --rm -v /:/host alpine:latest sh -c '
+            if [ -d /host/__w ] && [ ! -L /host/__w ]; then
+              rm -rf /host/__w
+            fi
+            ln -sfn /opt/actions-runner/_work /host/__w
+          '
+      # Also clean stale directory at the script path — if a previous job
+      # crashed before cleanup, Docker may have auto-created a directory there.
       - name: Clean stale maturin temp script
         if: ${{ matrix.target != 'x86_64' }}
         run: |
-          SCRIPT="${{ runner.temp }}/run-maturin-action.sh"
-          if [ -d "$SCRIPT" ]; then
-            echo "::warning::Removing stale directory at $SCRIPT"
-            rm -rf "$SCRIPT"
-          fi
+          for SCRIPT in "${{ runner.temp }}/run-maturin-action.sh" "/__w/_temp/run-maturin-action.sh"; do
+            if [ -d "$SCRIPT" ]; then
+              echo "::warning::Removing stale directory at $SCRIPT"
+              rm -rf "$SCRIPT"
+            fi
+          done
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
