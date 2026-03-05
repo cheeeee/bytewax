@@ -58,12 +58,6 @@ jobs:
           uv venv -p ${{ matrix.python-version }} venv/
           . venv/bin/activate
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
-      - name: Isolate maturin temp dir
-        run: |
-          MATURIN_TEMP="/__w/_temp/maturin-bench-${{ matrix.python-version }}"
-          rm -rf "$MATURIN_TEMP" 2>/dev/null || true
-          mkdir -p "$MATURIN_TEMP"
-          echo "RUNNER_TEMP=$MATURIN_TEMP" >> $GITHUB_ENV
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:

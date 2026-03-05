@@ -230,15 +230,19 @@ jobs:
             uv cache clean
             uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
           }
-      # maturin-action writes run-maturin-action.sh to $RUNNER_TEMP and
-      # bind-mounts it into Docker. Concurrent jobs on the same runner
-      # collide on this path. Give each matrix job a unique temp dir.
-      - name: Isolate maturin temp dir
+      # maturin-action writes a temp script to $RUNNER_TEMP/run-maturin-action.sh
+      # and bind-mounts it into Docker for cross-compilation. If a previous job
+      # crashed before cleanup, Docker may have auto-created a directory at this
+      # path (bind-mounting a non-existent file creates a directory). Remove stale
+      # directories so the next maturin-action run can create a file there.
+      - name: Clean stale maturin temp script
+        if: ${{ matrix.target != 'x86_64' }}
         run: |
-          MATURIN_TEMP="/__w/_temp/maturin-${{ matrix.python-version }}-${{ matrix.target }}"
-          rm -rf "$MATURIN_TEMP" 2>/dev/null || true
-          mkdir -p "$MATURIN_TEMP"
-          echo "RUNNER_TEMP=$MATURIN_TEMP" >> $GITHUB_ENV
+          SCRIPT="${{ runner.temp }}/run-maturin-action.sh"
+          if [ -d "$SCRIPT" ]; then
+            echo "::warning::Removing stale directory at $SCRIPT"
+            rm -rf "$SCRIPT"
+          fi
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
