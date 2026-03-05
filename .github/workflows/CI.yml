@@ -107,8 +107,9 @@ jobs:
         run: |
           . venv/bin/activate
           just lint-pc
-      # Build wheel via maturin-action (uses sccache, avoids OOM from
-      # in-process cargo build during `uv pip sync -e .`)
+      # Build wheel via maturin-action (avoids OOM from in-process
+      # cargo build during `uv pip sync -e .`). No sccache — the GHA
+      # sccache server can't start reliably inside container jobs.
       - name: Prep build venv
         shell: bash
         run: |
@@ -123,7 +124,7 @@ jobs:
         with:
           target: x86_64
           args: --release --out dist/ -i 3.12
-          sccache: true
+          sccache: false
       - name: Install wheel and dev dependencies
         shell: bash
         run: |
@@ -224,11 +225,20 @@ jobs:
         run: |
           uv venv -p ${{ matrix.python-version }} venv/
           . venv/bin/activate
-          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
-      # maturin-action writes a temp script and bind-mounts it into Docker.
-      # Stale directories at this path from prior runs cause "is a directory" errors.
-      - name: Clean stale maturin build scripts
-        run: rm -rf "/__w/_temp/run-maturin-action.sh" 2>/dev/null || true
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt || {
+            echo "::warning::uv pip sync failed, clearing cache and retrying"
+            uv cache clean
+            uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+          }
+      # maturin-action writes run-maturin-action.sh to $RUNNER_TEMP and
+      # bind-mounts it into Docker. Concurrent jobs on the same runner
+      # collide on this path. Give each matrix job a unique temp dir.
+      - name: Isolate maturin temp dir
+        run: |
+          MATURIN_TEMP="/__w/_temp/maturin-${{ matrix.python-version }}-${{ matrix.target }}"
+          rm -rf "$MATURIN_TEMP" 2>/dev/null || true
+          mkdir -p "$MATURIN_TEMP"
+          echo "RUNNER_TEMP=$MATURIN_TEMP" >> $GITHUB_ENV
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
