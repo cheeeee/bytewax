@@ -77,6 +77,26 @@ ignore_missing_imports = true
 module = "jsonpickle.*"
 ignore_missing_imports = true
 
+# Third-party modules used in examples/ that lack type stubs.
+[[tool.mypy.overrides]]
+module = [
+    "pandas",
+    "pandas.*",
+    "fake_web_events",
+    "fake_web_events.*",
+    "river",
+    "river.*",
+    "requests",
+    "requests.*",
+    "websockets",
+    "websockets.*",
+    "pyarrow",
+    "pyarrow.*",
+    "aiohttp_sse_client",
+    "aiohttp_sse_client.*",
+]
+ignore_missing_imports = true
+
 [tool.ruff.lint]
 select = [
     "A",
