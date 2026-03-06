@@ -574,7 +574,7 @@ where
                         let batch: Vec<Py<PyAny>> = tmp_incoming
                             .split_off(0)
                             .into_iter()
-                            .map(|item| item.into())
+                            .map(std::convert::Into::into)
                             .collect();
                         item_inp_count.add(batch.len() as u64, &labels);
                         with_timer!(

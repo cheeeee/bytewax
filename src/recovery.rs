@@ -167,7 +167,7 @@ impl<'py> IntoPyObject<'py> for BackupInterval {
     type Output = Bound<'py, PyAny>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.0.into_pyobject(py).map(|b| b.into_any())
+        self.0.into_pyobject(py).map(pyo3::Bound::into_any)
     }
 }
 
