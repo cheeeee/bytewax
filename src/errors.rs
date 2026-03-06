@@ -148,6 +148,12 @@ impl<T> PythonException<T> for Result<T, CastError<'_, '_>> {
     }
 }
 
+impl<T> PythonException<T> for Result<T, std::num::ParseIntError> {
+    fn into_pyresult(self) -> PyResult<T> {
+        self.map_err(|err| PyErr::new::<PyException, _>(format!("{err}")))
+    }
+}
+
 /// Use this function to create a PyErr with location tracking.
 #[track_caller]
 pub(crate) fn tracked_err<PyErrType: PyTypeInfo>(msg: &str) -> PyErr {
@@ -175,4 +181,39 @@ fn get_traceback(py: Python, err: &PyErr) -> Option<String> {
 /// Prepend '({caller}) ' to the message
 fn prepend_caller(caller: &Location, msg: &str) -> String {
     format!("({caller}) {msg}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pyo3::exceptions::PyValueError;
+
+    #[test]
+    fn parse_int_error_converts_to_pyresult() {
+        pyo3::Python::initialize();
+        let result: Result<u16, _> = "not_a_number".parse();
+        let py_result = result.into_pyresult();
+        assert!(py_result.is_err());
+    }
+
+    #[test]
+    fn parse_int_error_raise_produces_correct_type() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let result: PyResult<u16> = "not_a_number"
+                .parse::<u16>()
+                .raise::<PyValueError>("bad port");
+            assert!(result.unwrap_err().is_instance_of::<PyValueError>(py));
+        });
+    }
+
+    #[test]
+    fn tracked_err_includes_caller_location() {
+        pyo3::Python::initialize();
+        let err = tracked_err::<PyValueError>("test message");
+        let msg = err.to_string();
+        // Should contain the file location and the message
+        assert!(msg.contains("errors.rs"), "expected file in: {msg}");
+        assert!(msg.contains("test message"), "expected message in: {msg}");
+    }
 }

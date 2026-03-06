@@ -511,15 +511,22 @@ fn migrations_valid() -> rusqlite_migration::Result<()> {
 }
 
 /// Setup our connection-level pragmas. Run this on each connection.
-fn setup_conn(conn: &Rc<RefCell<Connection>>) {
+fn setup_conn(conn: &Rc<RefCell<Connection>>) -> PyResult<()> {
     let mut conn = conn.borrow_mut();
 
-    rusqlite::vtab::series::load_module(&conn).unwrap();
-    conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+    rusqlite::vtab::series::load_module(&conn)
+        .raise::<PyRuntimeError>("error loading SQLite series module")?;
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .raise::<PyRuntimeError>("error setting foreign_keys pragma")?;
     // These are recommended by Litestream.
-    conn.pragma_update(None, "journal_mode", "WAL").unwrap();
-    conn.pragma_update(None, "busy_timeout", "5000").unwrap();
-    MIGRATIONS.to_latest(&mut conn).unwrap();
+    conn.pragma_update(None, "journal_mode", "WAL")
+        .raise::<PyRuntimeError>("error setting journal_mode pragma")?;
+    conn.pragma_update(None, "busy_timeout", "5000")
+        .raise::<PyRuntimeError>("error setting busy_timeout pragma")?;
+    MIGRATIONS
+        .to_latest(&mut conn)
+        .raise::<PyRuntimeError>("error running database migrations")?;
+    Ok(())
 }
 
 struct PartitionMetaWriter {
@@ -1074,7 +1081,7 @@ impl RecoveryPart {
             )
             .reraise("can't open recovery DB")?,
         ));
-        setup_conn(&conn);
+        setup_conn(&conn)?;
 
         let _self = Self { conn };
         _self
@@ -1093,14 +1100,14 @@ impl RecoveryPart {
             )
             .reraise("can't open recovery DB")?,
         ));
-        setup_conn(&conn);
+        setup_conn(&conn)?;
 
         Ok(Self { conn })
     }
 
     fn init_open_mem() -> Self {
         let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));
-        setup_conn(&conn);
+        setup_conn(&conn).unwrap();
 
         Self { conn }
     }
@@ -1171,15 +1178,17 @@ impl RecoveryPart {
     /// calculation.
     fn resume_from(&self) -> PyResult<ResumeFrom> {
         let mut conn = self.conn.borrow_mut();
-        let txn = conn.transaction().unwrap();
+        let txn = conn
+            .transaction()
+            .reraise("error starting recovery DB transaction")?;
 
         let part_counts = txn
             .prepare("SELECT DISTINCT(part_count) FROM parts")
-            .unwrap()
+            .reraise("error preparing part_count query")?
             .query_map((), |row| Ok(PartitionCount(row.get(0)?)))
-            .unwrap()
+            .reraise("error querying part counts")?
             .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+            .reraise("error collecting part counts")?;
         if part_counts.is_empty() {
             let msg = "No recovery partitions found on any worker; can't resume";
             return Err(NoPartitionsError::new_err(msg));
@@ -1192,11 +1201,11 @@ impl RecoveryPart {
         let expected_parts: BTreeSet<_> = part_count.iter().collect();
         let found_parts = txn
             .prepare("SELECT part_index FROM parts")
-            .unwrap()
+            .reraise("error preparing part_index query")?
             .query_map((), |row| Ok(PartitionIndex(row.get(0)?)))
-            .unwrap()
+            .reraise("error querying part indices")?
             .collect::<Result<BTreeSet<_>, _>>()
-            .unwrap();
+            .reraise("error collecting part indices")?;
         let missing_parts = &expected_parts - &found_parts;
         if !missing_parts.is_empty() {
             let msg = format!(
@@ -1241,7 +1250,7 @@ impl RecoveryPart {
                     Ok(ex_num.zip(resume_epoch).map(|(en, re)| ResumeFrom(en, re)))
                 },
             )
-            .unwrap()
+            .reraise("error querying resume epoch")?
             .unwrap_or_default();
 
         let ResumeFrom(_resume_ex, resume_epoch) = resume_from;
@@ -1249,11 +1258,11 @@ impl RecoveryPart {
         // been GC'd and so might be missing data in the resume epoch.
         let state_missing_parts = txn
             .prepare("SELECT part_index FROM commits WHERE commit_epoch > ?1")
-            .unwrap()
+            .reraise("error preparing commit_epoch query")?
             .query_map((resume_epoch.0,), |row| Ok(PartitionIndex(row.get(0)?)))
-            .unwrap()
+            .reraise("error querying state missing parts")?
             .collect::<Result<BTreeSet<_>, _>>()
-            .unwrap();
+            .reraise("error collecting state missing parts")?;
         if !state_missing_parts.is_empty() {
             let delayed_parts = &expected_parts - &state_missing_parts;
             let msg = format!(
@@ -1352,6 +1361,31 @@ fn resume_from_inconsistent_error() {
         let found = conn.resume_from().unwrap_err();
         assert!(found.is_instance_of::<InconsistentPartitionsError>(py));
     });
+}
+
+#[test]
+fn setup_conn_configures_db() {
+    pyo3::Python::initialize();
+    let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));
+    setup_conn(&conn).unwrap();
+
+    let conn_ref = conn.borrow();
+    // Verify busy_timeout pragma was set.
+    // (WAL journal_mode is not supported on in-memory databases.)
+    let busy_timeout: i64 = conn_ref
+        .pragma_query_value(None, "busy_timeout", |row| row.get(0))
+        .unwrap();
+    assert_eq!(busy_timeout, 5000);
+
+    // Verify migrations ran by checking that expected tables exist.
+    let table_count: i64 = conn_ref
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('parts', 'exs', 'fronts', 'commits', 'snaps')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(table_count, 5);
 }
 
 /// Create and init a set of empty recovery partitions.

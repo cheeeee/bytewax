@@ -24,7 +24,6 @@ rusqlite_migration = { version = "1.1.0" }
 seahash = { version = "4.1.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
-serde_test = { version = "1.0" }
 timely = { git = "https://github.com/TimelyDataflow/timely-dataflow.git", rev = "432ef57", features = ["bincode"] }
 tokio = { version = "1.20", features = ["full"] }
 tracing = { version = "0.1" }
@@ -33,6 +32,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 pyo3 = { version = "0.28", features = ["macros", "chrono", "py-clone"] }
+serde_test = { version = "1.0" }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(Py_3_13)'] }

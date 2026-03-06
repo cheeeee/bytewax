@@ -269,3 +269,9 @@ def test_inconsistent_parts(tmp_path):
     shutil.copy(tmp_path / "part-0.run0", tmp_path / "part-0.sqlite3")
     with raises(InconsistentPartitionsError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+
+def test_init_db_dir_nonexistent_directory(tmp_path):
+    missing = tmp_path / "does_not_exist"
+    with raises(FileNotFoundError, match="does not exist"):
+        init_db_dir(missing, 1)

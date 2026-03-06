@@ -955,3 +955,34 @@ pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("AbortExecution", py.get_type::<AbortExecution>())?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    #[test]
+    fn default_next_awake_explicit_time_returned_as_is() {
+        let now = Utc::now();
+        let explicit = now + TimeDelta::seconds(10);
+        // When source returns an explicit time, it's always used regardless of batch_len
+        assert_eq!(default_next_awake(Some(explicit), 0, now), Some(explicit));
+        assert_eq!(default_next_awake(Some(explicit), 5, now), Some(explicit));
+    }
+
+    #[test]
+    fn default_next_awake_none_with_items_returns_none() {
+        let now = Utc::now();
+        // None + items → re-awaken immediately (None)
+        assert_eq!(default_next_awake(None, 1, now), None);
+        assert_eq!(default_next_awake(None, 100, now), None);
+    }
+
+    #[test]
+    fn default_next_awake_none_with_no_items_returns_cooldown() {
+        let now = Utc::now();
+        // None + no items → wait DEFAULT_COOLDOWN
+        let result = default_next_awake(None, 0, now);
+        assert_eq!(result, Some(now + DEFAULT_COOLDOWN));
+    }
+}
