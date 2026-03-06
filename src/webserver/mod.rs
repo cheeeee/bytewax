@@ -1,12 +1,12 @@
 use axum::{
+    Router,
     extract::Extension,
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
-    Router,
 };
 
-use prometheus::{default_registry, TextEncoder};
+use prometheus::{TextEncoder, default_registry};
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use std::{net::SocketAddr, sync::Arc};
 

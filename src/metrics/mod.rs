@@ -3,7 +3,7 @@ use opentelemetry::{
     sdk::metrics::{Aggregation, Instrument, MeterProvider, Stream},
 };
 use prometheus::default_registry;
-use pyo3::{exceptions::PyRuntimeError, PyErr, PyResult};
+use pyo3::{PyErr, PyResult, exceptions::PyRuntimeError};
 
 #[macro_export]
 macro_rules! with_timer {

@@ -1,8 +1,8 @@
 //! Code implementing Bytewax's core operators.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::BuildHasherDefault;
 
 use chrono::DateTime;
@@ -11,17 +11,17 @@ use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
+use timely::ExchangeData;
+use timely::dataflow::Scope;
+use timely::dataflow::Stream;
 use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::operators::Exchange;
 use timely::dataflow::operators::Map;
 use timely::dataflow::operators::ToStream;
-use timely::dataflow::Scope;
-use timely::dataflow::Stream;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::order::TotalOrder;
 use timely::progress::Antichain;
-use timely::ExchangeData;
 
 use crate::errors::PythonException;
 use crate::pyo3_extensions::SafePy;

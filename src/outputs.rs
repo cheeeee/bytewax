@@ -10,16 +10,16 @@ use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Map;
-use timely::dataflow::operators::Operator;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
+use timely::dataflow::channels::pact::Pipeline;
+use timely::dataflow::operators::Map;
+use timely::dataflow::operators::Operator;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::progress::Timestamp;
 
-use crate::errors::tracked_err;
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::operators::ExtractKeyOp;
 use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
@@ -324,9 +324,10 @@ where
                                             // this partition, lazily create
                                             // it.
                                             .or_insert_with_key(|part_key| {
-                                                unwrap_any!(sink
-                                                    .build_part(py, &step_id, part_key, None)
-                                                    .reraise("error init StatefulSink"))
+                                                unwrap_any!(
+                                                    sink.build_part(py, &step_id, part_key, None)
+                                                        .reraise("error init StatefulSink")
+                                                )
                                             });
 
                                         let batch: Vec<_> =

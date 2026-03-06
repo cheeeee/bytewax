@@ -6,12 +6,12 @@
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -22,8 +22,8 @@ use pyo3::types::PyType;
 use tokio::runtime::Runtime;
 
 use crate::dataflow::Dataflow;
-use crate::errors::tracked_err;
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::inputs::EpochInterval;
 use crate::metrics::initialize_metrics;
 use crate::recovery::RecoveryConfig;

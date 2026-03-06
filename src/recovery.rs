@@ -28,23 +28,23 @@ use pyo3::types::PyBytes;
 use pyo3::types::PyString;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
-use rusqlite_migration::Migrations;
 use rusqlite_migration::M;
+use rusqlite_migration::Migrations;
 use seahash::SeaHasher;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::LazyLock;
+use timely::Data;
+use timely::dataflow::Scope;
+use timely::dataflow::Stream;
 use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Broadcast;
 use timely::dataflow::operators::Concat;
 use timely::dataflow::operators::Delay;
 use timely::dataflow::operators::Map;
 use timely::dataflow::operators::Operator;
-use timely::dataflow::Scope;
-use timely::dataflow::Stream;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::progress::Timestamp;
-use timely::Data;
 use tracing::instrument;
 
 use crate::errors::PythonException;
@@ -402,7 +402,7 @@ impl RecoveryBundle {
     ///
     /// This clones all the [`Rc`]s appropriately internally so that
     /// the cache is used.
-    fn new_builder(&self) -> impl FnMut(&PartitionIndex) -> Rc<RefCell<RecoveryPart>> {
+    fn new_builder(&self) -> impl FnMut(&PartitionIndex) -> Rc<RefCell<RecoveryPart>> + use<> {
         let part_paths = self.part_paths.clone();
         let built_parts = self.built_parts.clone();
         move |part_key| {
@@ -1717,8 +1717,7 @@ where
                 BuildHasherDefault::<SeaHasher>::default(),
                 move |part_key| {
                     let part = new_ex_part(part_key);
-                    let writer = part.borrow().ex_writer();
-                    writer
+                    part.borrow().ex_writer()
                 },
             );
 
@@ -1732,8 +1731,7 @@ where
             BuildHasherDefault::<SeaHasher>::default(),
             move |part_key| {
                 let part = new_snap_part(part_key);
-                let writer = part.borrow().snap_writer();
-                writer
+                part.borrow().snap_writer()
             },
         );
 
@@ -1749,8 +1747,7 @@ where
                 BuildHasherDefault::<SeaHasher>::default(),
                 move |part_key| {
                     let part = new_front_part(part_key);
-                    let writer = part.borrow().front_writer();
-                    writer
+                    part.borrow().front_writer()
                 },
             )
             .broadcast()
@@ -1759,8 +1756,7 @@ where
                 local_parts,
                 move |part_key| {
                     let part = new_commit_part(part_key);
-                    let committer = part.borrow().committer(*part_key);
-                    committer
+                    part.borrow().committer(*part_key)
                 },
                 epoch_interval.epochs_per(backup_interval.0),
             )

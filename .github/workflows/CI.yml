@@ -293,8 +293,8 @@ jobs:
         target: ['x86_64', 'aarch64']
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/cache@v4
+      - uses: actions/checkout@v6
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -309,7 +309,7 @@ jobs:
           enable-cache: true
       - run: uv python install
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v3
       - uses: dsherret/rust-toolchain-file@v1
       - name: Build wheel
         uses: PyO3/maturin-action@v1
@@ -335,7 +335,7 @@ jobs:
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-macos-${{ matrix.target }}-${{ matrix.python-version }}
           path: dist
@@ -347,8 +347,8 @@ jobs:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/cache@v4
+      - uses: actions/checkout@v6
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -364,7 +364,7 @@ jobs:
       - run: uv python install
       - shell: bash
         run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v3
       - uses: dsherret/rust-toolchain-file@v1
       - name: Find Python interpreter
         id: python-path
@@ -391,7 +391,7 @@ jobs:
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-windows-${{ matrix.python-version }}
           path: dist

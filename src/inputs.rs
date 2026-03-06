@@ -5,9 +5,9 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 use chrono::DateTime;
 use chrono::TimeDelta;
@@ -19,16 +19,16 @@ use pyo3::exceptions::PyStopIteration;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Capability;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
+use timely::dataflow::channels::pact::Pipeline;
+use timely::dataflow::operators::Capability;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::progress::Timestamp;
 
-use crate::errors::tracked_err;
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
@@ -574,14 +574,14 @@ impl FixedPartitionedSource {
                         // request activation so we will only be
                         // awoken when there's new loading input and
                         // we don't spin during loading.
-                    } else if !parts.is_empty() {
-                        if let Some(min_next_awake) = parts.values().map(|part_state| part_state.next_awake.unwrap_or(now)).min() {
-                            let awake_after = min_next_awake - now;
-                            // If we are already late for the next
-                            // activation, awake immediately.
-                            let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
-                            activator.activate_after(awake_after);
-                        }
+                    } else if !parts.is_empty()
+                        && let Some(min_next_awake) = parts.values().map(|part_state| part_state.next_awake.unwrap_or(now)).min()
+                    {
+                        let awake_after = min_next_awake - now;
+                        // If we are already late for the next
+                        // activation, awake immediately.
+                        let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
+                        activator.activate_after(awake_after);
                     }
                 });
             }

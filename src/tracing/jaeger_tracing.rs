@@ -1,7 +1,7 @@
 use opentelemetry::runtime::Tokio;
-use opentelemetry::sdk::trace::config;
 use opentelemetry::sdk::trace::Sampler;
 use opentelemetry::sdk::trace::Tracer;
+use opentelemetry::sdk::trace::config;
 use pyo3::prelude::*;
 
 use super::TracerBuilder;

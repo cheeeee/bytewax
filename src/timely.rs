@@ -12,29 +12,29 @@ use std::hash::Hash;
 use std::time::Duration;
 
 use num::CheckedSub;
-use opentelemetry::global;
 use opentelemetry::KeyValue;
+use opentelemetry::global;
 use serde::Deserialize;
 use serde::Serialize;
+use timely::Data;
+use timely::ExchangeData;
 use timely::communication::message::RefOrMut;
+use timely::dataflow::Scope;
+use timely::dataflow::Stream;
 use timely::dataflow::channels::pact::Exchange;
 use timely::dataflow::channels::pact::ParallelizationContract;
 use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::generic::operator::empty;
-use timely::dataflow::operators::generic::InputHandle;
 use timely::dataflow::operators::Broadcast;
 use timely::dataflow::operators::Capability;
 use timely::dataflow::operators::Exchange as ExchangeOp;
 use timely::dataflow::operators::Map;
-use timely::dataflow::Scope;
-use timely::dataflow::Stream;
+use timely::dataflow::operators::generic::InputHandle;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
+use timely::dataflow::operators::generic::operator::empty;
 use timely::order::TotalOrder;
-use timely::progress::frontier::MutableAntichain;
 use timely::progress::Timestamp;
+use timely::progress::frontier::MutableAntichain;
 use timely::worker::AsWorker;
-use timely::Data;
-use timely::ExchangeData;
 
 use crate::with_timer;
 
@@ -310,7 +310,7 @@ pub(crate) struct WorkerCount(pub(crate) usize);
 
 impl WorkerCount {
     /// Iterate through all workers in this cluster.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = WorkerIndex> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = WorkerIndex> + use<> {
         (0..self.0).map(WorkerIndex)
     }
 }

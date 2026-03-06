@@ -1,13 +1,13 @@
 use std::panic::Location;
 
-use pyo3::exceptions::PyException;
-use pyo3::import_exception;
-use pyo3::types::PyTracebackMethods;
 use pyo3::CastError;
 use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::PyTypeInfo;
 use pyo3::Python;
+use pyo3::exceptions::PyException;
+use pyo3::import_exception;
+use pyo3::types::PyTracebackMethods;
 
 import_exception!(bytewax.errors, BytewaxRuntimeError);
 

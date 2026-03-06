@@ -12,10 +12,10 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::filter::Targets;
-use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Layer;
 use tracing_subscriber::Registry;
+use tracing_subscriber::filter::Targets;
+use tracing_subscriber::layer::SubscriberExt;
 
 pub(crate) mod jaeger_tracing;
 pub(crate) mod otlp_tracing;
@@ -23,8 +23,8 @@ pub(crate) mod otlp_tracing;
 pub(crate) use jaeger_tracing::JaegerConfig;
 pub(crate) use otlp_tracing::OtlpTracingConfig;
 
-use crate::errors::tracked_err;
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::pyo3_extensions::PyConfigClass;
 
 /// Base class for tracing/logging configuration.
