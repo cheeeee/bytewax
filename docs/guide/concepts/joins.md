@@ -91,14 +91,18 @@ op.inspect("check_emails", keyed_emails)
 ```{testcode}
 :hide:
 
+import io, sys
 from bytewax.testing import run_main
 
+_stdout = sys.stdout
+sys.stdout = io.StringIO()
 run_main(flow)
+sys.stdout = _stdout
 ```
 
 Looks like we see our 2-tuples!
 
-```{testoutput}
+```text
 join_eg.check_names: ('123', 'Bee')
 join_eg.check_emails: ('123', 'bee@bytewax.io')
 join_eg.check_names: ('456', 'Hive')
@@ -531,13 +535,16 @@ op.inspect("check_emails", keyed_emails)
 ```{testcode}
 :hide:
 
+_stdout = sys.stdout
+sys.stdout = io.StringIO()
 run_main(flow)
+sys.stdout = _stdout
 ```
 
 The values are entire {py:obj}`dict`s and we'll still access the
 `"at"` key to use the event timestamp.
 
-```{testoutput}
+```text
 join_eg.check_names: ('123', {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'})
 join_eg.check_emails: ('123', {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})
 join_eg.check_names: ('456', {'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'})
