@@ -162,9 +162,11 @@ impl Drop for StatefulPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(
-            Python::attach(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
-        );
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                err.write_unraisable(py, None);
+            }
+        });
     }
 }
 
@@ -492,9 +494,11 @@ impl Drop for StatelessPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(Python::attach(|py| self
-            .close(py)
-            .reraise("error closing StatelessSinkPartition")));
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                err.write_unraisable(py, None);
+            }
+        });
     }
 }
 

@@ -651,7 +651,7 @@ impl StatefulPartition {
     }
 
     fn close(&self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close");
+        let _ = self.0.call_method0(py, "close")?;
         Ok(())
     }
 }
@@ -662,9 +662,11 @@ impl Drop for StatefulPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(Python::attach(|py| self
-            .close(py)
-            .reraise("error closing StatefulSourcePartition")));
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                err.write_unraisable(py, None);
+            }
+        });
     }
 }
 
@@ -941,9 +943,11 @@ impl Drop for StatelessPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(Python::attach(|py| self
-            .close(py)
-            .reraise("error closing StatelessSourcePartition")));
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                err.write_unraisable(py, None);
+            }
+        });
     }
 }
 

@@ -276,7 +276,8 @@ pub(crate) fn cluster_main(
         let (tx, rx): (Sender<PyErr>, Receiver<PyErr>) = mpsc::channel();
         let panic_tx = tx.clone();
         // Custom hook to push the panic error into a channel
-        // before panicking.
+        // before panicking. Save the previous hook to restore later.
+        let prev_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             should_shutdown_p.store(true, Ordering::Relaxed);
 
@@ -288,13 +289,6 @@ pub(crate) fn cluster_main(
                 // and show the user what we have.
                 tracked_err::<PyRuntimeError>(&format!("{info}"))
             };
-            // TODO: This block handles an unfortunate interaction
-            // with our test suite.
-            //
-            // When multiple entry point calls are made for a test
-            // this panic hook is set during runs with `cluster_main`,
-            // but can be invoked during subsequent invocations of
-            // `run_main`, crashing the test suite.
             Python::attach(|py| {
                 let channel_err = err.clone_ref(py);
                 panic_tx.send(channel_err).unwrap_or_else(|_| {
@@ -346,9 +340,12 @@ pub(crate) fn cluster_main(
         for maybe_worker_panic in guards.join() {
             maybe_worker_panic.map_err(|_| {
                 rx.try_recv()
-                    .expect("unable to receive panic error from channel")
+                    .unwrap_or_else(|_| tracked_err::<PyRuntimeError>("worker panicked"))
             })?;
         }
+
+        // Restore the previous panic hook.
+        std::panic::set_hook(prev_hook);
 
         Ok(())
     })
