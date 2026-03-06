@@ -1,9 +1,9 @@
+use opentelemetry::KeyValue;
 use opentelemetry::runtime::Tokio;
-use opentelemetry::sdk::trace::config;
+use opentelemetry::sdk::Resource;
 use opentelemetry::sdk::trace::Sampler;
 use opentelemetry::sdk::trace::Tracer;
-use opentelemetry::sdk::Resource;
-use opentelemetry::KeyValue;
+use opentelemetry::sdk::trace::config;
 use opentelemetry_otlp::WithExportConfig;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -36,7 +36,7 @@ use super::TracingConfig;
 ///     `1.0`.
 ///
 /// :type sampling_ratio: float
-#[pyclass(module="bytewax.tracing", extends=TracingConfig)]
+#[pyclass(module="bytewax.tracing", extends=TracingConfig, from_py_object)]
 #[derive(Clone)]
 pub(crate) struct OtlpTracingConfig {
     #[pyo3(get)]

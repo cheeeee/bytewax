@@ -10,16 +10,16 @@ use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Map;
-use timely::dataflow::operators::Operator;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
+use timely::dataflow::channels::pact::Pipeline;
+use timely::dataflow::operators::Map;
+use timely::dataflow::operators::Operator;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::progress::Timestamp;
 
-use crate::errors::tracked_err;
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::operators::ExtractKeyOp;
 use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
@@ -99,7 +99,7 @@ impl FixedPartitionedSink {
         py: Python,
         step_id: &StepId,
         for_part: &StateKey,
-        resume_state: Option<PyObject>,
+        resume_state: Option<Py<PyAny>>,
     ) -> PyResult<StatefulPartition> {
         self.0
             .call_method1(
@@ -139,7 +139,7 @@ impl<'py> FromPyObject<'_, 'py> for StatefulPartition {
 }
 
 impl StatefulPartition {
-    fn write_batch(&self, py: Python, values: Vec<PyObject>) -> PyResult<()> {
+    fn write_batch(&self, py: Python, values: Vec<Py<PyAny>>) -> PyResult<()> {
         let _ = self
             .0
             .call_method1(py, intern!(py, "write_batch"), (values,))?;
@@ -162,9 +162,18 @@ impl Drop for StatefulPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(
-            Python::attach(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
-        );
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                if std::thread::panicking() {
+                    // During unwinding, avoid double-panic (which aborts).
+                    err.write_unraisable(py, None);
+                } else {
+                    // Normal path: propagate close errors via panic
+                    // so the dataflow reports failure on data-loss.
+                    unwrap_any!(Err::<(), _>(err));
+                }
+            }
+        });
     }
 }
 
@@ -324,9 +333,10 @@ where
                                             // this partition, lazily create
                                             // it.
                                             .or_insert_with_key(|part_key| {
-                                                unwrap_any!(sink
-                                                    .build_part(py, &step_id, part_key, None)
-                                                    .reraise("error init StatefulSink"))
+                                                unwrap_any!(
+                                                    sink.build_part(py, &step_id, part_key, None)
+                                                        .reraise("error init StatefulSink")
+                                                )
                                             });
 
                                         let batch: Vec<_> =
@@ -472,7 +482,7 @@ impl<'py> FromPyObject<'_, 'py> for StatelessPartition {
 }
 
 impl StatelessPartition {
-    fn write_batch(&self, py: Python, items: Vec<PyObject>) -> PyResult<()> {
+    fn write_batch(&self, py: Python, items: Vec<Py<PyAny>>) -> PyResult<()> {
         let _ = self
             .0
             .call_method1(py, intern!(py, "write_batch"), (items,))?;
@@ -491,9 +501,18 @@ impl Drop for StatelessPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(Python::attach(|py| self
-            .close(py)
-            .reraise("error closing StatelessSinkPartition")));
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                if std::thread::panicking() {
+                    // During unwinding, avoid double-panic (which aborts).
+                    err.write_unraisable(py, None);
+                } else {
+                    // Normal path: propagate close errors via panic
+                    // so the dataflow reports failure on data-loss.
+                    unwrap_any!(Err::<(), _>(err));
+                }
+            }
+        });
     }
 }
 
@@ -552,7 +571,7 @@ where
 
                         let mut output_session = output.session(&cap);
 
-                        let batch: Vec<PyObject> = tmp_incoming
+                        let batch: Vec<Py<PyAny>> = tmp_incoming
                             .split_off(0)
                             .into_iter()
                             .map(|item| item.into())

@@ -9,33 +9,32 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::BuildHasher;
 use std::hash::Hash;
-use std::hash::Hasher;
 use std::time::Duration;
 
 use num::CheckedSub;
-use opentelemetry::global;
 use opentelemetry::KeyValue;
+use opentelemetry::global;
 use serde::Deserialize;
 use serde::Serialize;
+use timely::Data;
+use timely::ExchangeData;
 use timely::communication::message::RefOrMut;
+use timely::dataflow::Scope;
+use timely::dataflow::Stream;
 use timely::dataflow::channels::pact::Exchange;
 use timely::dataflow::channels::pact::ParallelizationContract;
 use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::generic::operator::empty;
-use timely::dataflow::operators::generic::InputHandle;
 use timely::dataflow::operators::Broadcast;
 use timely::dataflow::operators::Capability;
 use timely::dataflow::operators::Exchange as ExchangeOp;
 use timely::dataflow::operators::Map;
-use timely::dataflow::Scope;
-use timely::dataflow::Stream;
+use timely::dataflow::operators::generic::InputHandle;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
+use timely::dataflow::operators::generic::operator::empty;
 use timely::order::TotalOrder;
-use timely::progress::frontier::MutableAntichain;
 use timely::progress::Timestamp;
+use timely::progress::frontier::MutableAntichain;
 use timely::worker::AsWorker;
-use timely::Data;
-use timely::ExchangeData;
 
 use crate::with_timer;
 
@@ -311,7 +310,7 @@ pub(crate) struct WorkerCount(pub(crate) usize);
 
 impl WorkerCount {
     /// Iterate through all workers in this cluster.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = WorkerIndex> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = WorkerIndex> + use<> {
         (0..self.0).map(WorkerIndex)
     }
 }
@@ -458,9 +457,7 @@ where
     K: Hash,
 {
     fn assign(&self, key: &K) -> usize {
-        let mut hasher = self.build_hasher();
-        key.hash(&mut hasher);
-        hasher.finish() as usize
+        self.hash_one(key) as usize
     }
 }
 
@@ -962,7 +959,7 @@ where
 
                                 let labels = part_label_map
                                     .get(&part_key)
-                                    .expect("No metric labels found for part key {part_key}");
+                                    .unwrap_or_else(|| panic!("No metric labels found for part key {part_key}"));
                                 with_timer!(histogram, labels, part.write_batch(items));
                             }
                         }
@@ -1167,9 +1164,9 @@ where
 
                         for (part_key, worker) in inbuf.drain(..) {
                             if worker == this_worker {
-                                let labels = part_label_map
-                                    .get(&part_key)
-                                    .expect("No metric labels found for part key {part_key}");
+                                let labels = part_label_map.get(&part_key).unwrap_or_else(|| {
+                                    panic!("No metric labels found for part key {part_key}")
+                                });
                                 let part = with_timer!(histogram, labels, builder(&part_key));
                                 tracing::debug!("Init-ing {part_key} at epoch {epoch:?}");
                                 let entry = LoadPartEntry {
@@ -1350,5 +1347,148 @@ where
         });
 
         clock
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- calc_primaries tests ---
+
+    #[test]
+    fn calc_primaries_balanced_assignment() {
+        let mut known = BTreeMap::new();
+        known.insert(0u32, BTreeSet::from([WorkerIndex(0), WorkerIndex(1)]));
+        known.insert(1, BTreeSet::from([WorkerIndex(0), WorkerIndex(1)]));
+
+        let primaries = calc_primaries(&known);
+
+        assert_eq!(primaries.len(), 2);
+        let workers: BTreeSet<_> = primaries.values().collect();
+        assert_eq!(workers.len(), 2);
+    }
+
+    #[test]
+    fn calc_primaries_single_worker() {
+        let mut known = BTreeMap::new();
+        known.insert(0u32, BTreeSet::from([WorkerIndex(0)]));
+        known.insert(1, BTreeSet::from([WorkerIndex(0)]));
+        known.insert(2, BTreeSet::from([WorkerIndex(0)]));
+
+        let primaries = calc_primaries(&known);
+
+        assert_eq!(primaries.len(), 3);
+        for (_, worker) in &primaries {
+            assert_eq!(*worker, WorkerIndex(0));
+        }
+    }
+
+    #[test]
+    fn calc_primaries_empty_input() {
+        let known: BTreeMap<u32, BTreeSet<WorkerIndex>> = BTreeMap::new();
+        let primaries = calc_primaries(&known);
+        assert!(primaries.is_empty());
+    }
+
+    #[test]
+    fn calc_primaries_many_partitions_few_workers() {
+        let mut known = BTreeMap::new();
+        for i in 0..4u32 {
+            known.insert(i, BTreeSet::from([WorkerIndex(0), WorkerIndex(1)]));
+        }
+
+        let primaries = calc_primaries(&known);
+
+        assert_eq!(primaries.len(), 4);
+        let w0_count = primaries.values().filter(|w| **w == WorkerIndex(0)).count();
+        let w1_count = primaries.values().filter(|w| **w == WorkerIndex(1)).count();
+        assert_eq!(w0_count, 2);
+        assert_eq!(w1_count, 2);
+    }
+
+    // --- InBuffer tests ---
+
+    #[test]
+    fn inbuffer_extend_and_remove() {
+        let mut buf: InBuffer<u64, i32> = InBuffer::new();
+        let mut data = vec![1, 2, 3];
+        buf.extend(10, RefOrMut::Mut(&mut data));
+
+        assert!(data.is_empty());
+
+        let removed = buf.remove(&10);
+        assert_eq!(removed, Some(vec![1, 2, 3]));
+        assert_eq!(buf.remove(&10), None);
+    }
+
+    #[test]
+    fn inbuffer_multiple_epochs() {
+        let mut buf: InBuffer<u64, i32> = InBuffer::new();
+        let mut data1 = vec![1, 2];
+        let mut data2 = vec![3, 4];
+        buf.extend(10, RefOrMut::Mut(&mut data1));
+        buf.extend(20, RefOrMut::Mut(&mut data2));
+
+        let epochs: Vec<_> = buf.epochs().collect();
+        assert_eq!(epochs, vec![10, 20]);
+    }
+
+    #[test]
+    fn inbuffer_extend_same_epoch_appends() {
+        let mut buf: InBuffer<u64, i32> = InBuffer::new();
+        let mut data1 = vec![1, 2];
+        let mut data2 = vec![3, 4];
+        buf.extend(10, RefOrMut::Mut(&mut data1));
+        buf.extend(10, RefOrMut::Mut(&mut data2));
+
+        let removed = buf.remove(&10);
+        assert_eq!(removed, Some(vec![1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn inbuffer_empty_epochs() {
+        let buf: InBuffer<u64, i32> = InBuffer::new();
+        let epochs: Vec<u64> = buf.epochs().collect();
+        assert!(epochs.is_empty());
+    }
+
+    // --- FrontierEx tests ---
+
+    #[test]
+    fn frontier_is_eof_when_empty() {
+        let frontier = MutableAntichain::<u64>::new();
+        assert!(frontier.is_eof());
+    }
+
+    #[test]
+    fn frontier_is_not_eof_when_open() {
+        let frontier = MutableAntichain::<u64>::new_bottom(0);
+        assert!(!frontier.is_eof());
+    }
+
+    #[test]
+    fn frontier_is_closed_for_past_epoch() {
+        let frontier = MutableAntichain::<u64>::new_bottom(5);
+        assert!(frontier.is_closed(&3));
+    }
+
+    #[test]
+    fn frontier_is_not_closed_for_current_epoch() {
+        let frontier = MutableAntichain::<u64>::new_bottom(5);
+        assert!(!frontier.is_closed(&5));
+    }
+
+    #[test]
+    fn frontier_is_not_closed_for_future_epoch() {
+        let frontier = MutableAntichain::<u64>::new_bottom(5);
+        assert!(!frontier.is_closed(&7));
+    }
+
+    #[test]
+    fn frontier_eof_means_all_closed() {
+        let frontier = MutableAntichain::<u64>::new();
+        assert!(frontier.is_closed(&0));
+        assert!(frontier.is_closed(&999));
     }
 }

@@ -10,12 +10,13 @@
 use opentelemetry::sdk::trace::Tracer;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::filter::Targets;
-use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Layer;
 use tracing_subscriber::Registry;
+use tracing_subscriber::filter::Targets;
+use tracing_subscriber::layer::SubscriberExt;
 
 pub(crate) mod jaeger_tracing;
 pub(crate) mod otlp_tracing;
@@ -23,8 +24,8 @@ pub(crate) mod otlp_tracing;
 pub(crate) use jaeger_tracing::JaegerConfig;
 pub(crate) use otlp_tracing::OtlpTracingConfig;
 
-use crate::errors::tracked_err;
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::pyo3_extensions::PyConfigClass;
 
 /// Base class for tracing/logging configuration.
@@ -75,18 +76,20 @@ struct BytewaxTracer {
     rt: tokio::runtime::Runtime,
 }
 
-fn get_log_level(level: Option<String>) -> LevelFilter {
+fn get_log_level(level: Option<String>) -> PyResult<LevelFilter> {
     if let Some(level) = level {
         match level.to_lowercase().as_str() {
-            "trace" => LevelFilter::TRACE,
-            "debug" => LevelFilter::DEBUG,
-            "info" => LevelFilter::INFO,
-            "warn" => LevelFilter::WARN,
-            "error" => LevelFilter::ERROR,
-            level => panic!("Unknown log level: {level}"),
+            "trace" => Ok(LevelFilter::TRACE),
+            "debug" => Ok(LevelFilter::DEBUG),
+            "info" => Ok(LevelFilter::INFO),
+            "warn" => Ok(LevelFilter::WARN),
+            "error" => Ok(LevelFilter::ERROR),
+            level => Err(tracked_err::<PyValueError>(&format!(
+                "Unknown log level: {level}"
+            ))),
         }
     } else {
-        LevelFilter::ERROR
+        Ok(LevelFilter::ERROR)
     }
 }
 
@@ -130,7 +133,7 @@ impl BytewaxTracer {
         log_level: Option<String>,
     ) -> PyResult<()> {
         // Prepare the log layer
-        let log_level = get_log_level(log_level);
+        let log_level = get_log_level(log_level)?;
 
         // We need an async fn block to properly initialize the tracing runtime
         // and be able to propagate errors.
@@ -154,7 +157,7 @@ impl BytewaxTracer {
 ///
 /// ```python
 /// from bytewax.tracing import setup_tracing
-
+///
 /// tracer = setup_tracing()
 /// ```
 ///
@@ -170,16 +173,16 @@ impl BytewaxTracer {
 #[pyfunction]
 #[pyo3(signature = (tracing_config=None, log_level=None))]
 fn setup_tracing(
-    py: Python,
+    py: Python<'_>,
     tracing_config: Option<Py<TracingConfig>>,
     log_level: Option<String>,
 ) -> PyResult<Bound<'_, BytewaxTracer>> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .unwrap();
+        .raise::<PyRuntimeError>("error building tokio runtime")?;
     let tracer = Bound::new(py, BytewaxTracer { rt })?;
-    let builder = tracing_config.map(|conf| conf.downcast(py).unwrap());
+    let builder = tracing_config.map(|conf| conf.downcast(py)).transpose()?;
     tracer.borrow().setup(builder, log_level)?;
     Ok(tracer)
 }
@@ -191,4 +194,49 @@ pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<BytewaxTracer>()?;
     m.add_function(wrap_pyfunction!(setup_tracing, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pyo3::exceptions::PyValueError;
+
+    #[test]
+    fn get_log_level_valid_levels() {
+        assert_eq!(
+            get_log_level(Some("TRACE".to_string())).unwrap(),
+            LevelFilter::TRACE
+        );
+        assert_eq!(
+            get_log_level(Some("debug".to_string())).unwrap(),
+            LevelFilter::DEBUG
+        );
+        assert_eq!(
+            get_log_level(Some("Info".to_string())).unwrap(),
+            LevelFilter::INFO
+        );
+        assert_eq!(
+            get_log_level(Some("WARN".to_string())).unwrap(),
+            LevelFilter::WARN
+        );
+        assert_eq!(
+            get_log_level(Some("error".to_string())).unwrap(),
+            LevelFilter::ERROR
+        );
+    }
+
+    #[test]
+    fn get_log_level_none_defaults_to_error() {
+        assert_eq!(get_log_level(None).unwrap(), LevelFilter::ERROR);
+    }
+
+    #[test]
+    fn get_log_level_invalid_returns_error() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let result = get_log_level(Some("bogus".to_string()));
+            assert!(result.is_err());
+            assert!(result.unwrap_err().is_instance_of::<PyValueError>(py));
+        });
+    }
 }

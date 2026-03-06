@@ -1,11 +1,13 @@
 use opentelemetry::runtime::Tokio;
-use opentelemetry::sdk::trace::config;
 use opentelemetry::sdk::trace::Sampler;
 use opentelemetry::sdk::trace::Tracer;
+use opentelemetry::sdk::trace::config;
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 use super::TracerBuilder;
 use super::TracingConfig;
+use crate::errors::PythonException;
 
 /// Configure tracing to send traces to a Jaeger instance.
 ///
@@ -30,7 +32,7 @@ use super::TracingConfig;
 ///     `1.0`.
 ///
 /// :type sampling_ratio: float
-#[pyclass(module="bytewax.tracing", extends=TracingConfig)]
+#[pyclass(module="bytewax.tracing", extends=TracingConfig, from_py_object)]
 #[derive(Clone)]
 pub(crate) struct JaegerConfig {
     #[pyo3(get)]
@@ -74,6 +76,8 @@ impl TracerBuilder for JaegerConfig {
             tracer = tracer.with_endpoint(endpoint);
         }
 
-        Ok(tracer.install_batch(Tokio).unwrap())
+        tracer
+            .install_batch(Tokio)
+            .raise::<PyRuntimeError>("error installing Jaeger tracer")
     }
 }

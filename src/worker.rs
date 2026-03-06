@@ -3,22 +3,22 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use std::time::Duration;
 
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use timely::communication::Allocate;
-use timely::dataflow::operators::generic::operator::empty;
-use timely::dataflow::operators::Broadcast;
-use timely::dataflow::operators::Concatenate;
-use timely::dataflow::operators::Probe;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
+use timely::dataflow::operators::Broadcast;
+use timely::dataflow::operators::Concatenate;
+use timely::dataflow::operators::Probe;
+use timely::dataflow::operators::generic::operator::empty;
 use timely::progress::Timestamp;
 use timely::worker::Worker as TimelyWorker;
 use tracing::instrument;
@@ -26,8 +26,8 @@ use tracing::instrument;
 use crate::dataflow::Dataflow;
 use crate::dataflow::Operator;
 use crate::dataflow::StreamId;
-use crate::errors::tracked_err;
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::inputs::*;
 use crate::operators::*;
 use crate::outputs::*;
@@ -111,13 +111,13 @@ where
     tracing::info!("Worker start");
 
     let recovery = recovery_config
-        .map(|config| Python::attach(|py| config.borrow(py).build(py)))
+        .map(|config| Python::attach(|py| config.borrow(py).build()))
         .transpose()?;
 
     let resume_from = recovery
         .as_ref()
         .map(|(bundle, _backup_interval)| -> PyResult<ResumeFrom> {
-            let resume_calc = Python::attach(|py| Rc::new(RefCell::new(ResumeCalc::new(py))));
+            let resume_calc = Rc::new(RefCell::new(ResumeCalc::new()));
             let resume_calc_d = resume_calc.clone();
             let probe = Python::attach(|py| {
                 build_resume_calc_dataflow(py, worker.worker, bundle.clone_ref(py), resume_calc_d)

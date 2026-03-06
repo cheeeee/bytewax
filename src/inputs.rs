@@ -5,9 +5,9 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 use chrono::DateTime;
 use chrono::TimeDelta;
@@ -19,16 +19,16 @@ use pyo3::exceptions::PyStopIteration;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Capability;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
+use timely::dataflow::channels::pact::Pipeline;
+use timely::dataflow::operators::Capability;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::progress::Timestamp;
 
-use crate::errors::tracked_err;
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
@@ -215,7 +215,7 @@ impl FixedPartitionedSource {
         py: Python,
         step_id: &StepId,
         for_part: &StateKey,
-        resume_state: Option<PyObject>,
+        resume_state: Option<Py<PyAny>>,
     ) -> PyResult<StatefulPartition> {
         self.0
             .call_method1(
@@ -574,14 +574,14 @@ impl FixedPartitionedSource {
                         // request activation so we will only be
                         // awoken when there's new loading input and
                         // we don't spin during loading.
-                    } else if !parts.is_empty() {
-                        if let Some(min_next_awake) = parts.values().map(|part_state| part_state.next_awake.unwrap_or(now)).min() {
-                            let awake_after = min_next_awake - now;
-                            // If we are already late for the next
-                            // activation, awake immediately.
-                            let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
-                            activator.activate_after(awake_after);
-                        }
+                    } else if !parts.is_empty()
+                        && let Some(min_next_awake) = parts.values().map(|part_state| part_state.next_awake.unwrap_or(now)).min()
+                    {
+                        let awake_after = min_next_awake - now;
+                        // If we are already late for the next
+                        // activation, awake immediately.
+                        let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
+                        activator.activate_after(awake_after);
                     }
                 });
             }
@@ -615,7 +615,7 @@ impl<'py> FromPyObject<'_, 'py> for StatefulPartition {
 enum BatchResult {
     Eof,
     Abort,
-    Batch(Vec<PyObject>),
+    Batch(Vec<Py<PyAny>>),
 }
 
 impl StatefulPartition {
@@ -632,7 +632,7 @@ impl StatefulPartition {
                     )
                 })?;
                 let batch = iter
-                    .map(|res| res.map(PyObject::from))
+                    .map(|res| res.map(<Py<PyAny>>::from))
                     .collect::<PyResult<Vec<_>>>()
                     .reraise("error while iterating through batch")?;
                 Ok(BatchResult::Batch(batch))
@@ -651,7 +651,7 @@ impl StatefulPartition {
     }
 
     fn close(&self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close");
+        let _ = self.0.call_method0(py, "close")?;
         Ok(())
     }
 }
@@ -662,9 +662,11 @@ impl Drop for StatefulPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(Python::attach(|py| self
-            .close(py)
-            .reraise("error closing StatefulSourcePartition")));
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                err.write_unraisable(py, None);
+            }
+        });
     }
 }
 
@@ -915,7 +917,7 @@ impl StatelessPartition {
                     )
                 })?;
                 let batch = iter
-                    .map(|res| res.map(PyObject::from))
+                    .map(|res| res.map(<Py<PyAny>>::from))
                     .collect::<PyResult<Vec<_>>>()
                     .reraise("error while iterating through batch")?;
                 Ok(BatchResult::Batch(batch))
@@ -941,13 +943,46 @@ impl Drop for StatelessPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(Python::attach(|py| self
-            .close(py)
-            .reraise("error closing StatelessSourcePartition")));
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                err.write_unraisable(py, None);
+            }
+        });
     }
 }
 
 pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("AbortExecution", py.get_type::<AbortExecution>())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    #[test]
+    fn default_next_awake_explicit_time_returned_as_is() {
+        let now = Utc::now();
+        let explicit = now + TimeDelta::seconds(10);
+        // When source returns an explicit time, it's always used regardless of batch_len
+        assert_eq!(default_next_awake(Some(explicit), 0, now), Some(explicit));
+        assert_eq!(default_next_awake(Some(explicit), 5, now), Some(explicit));
+    }
+
+    #[test]
+    fn default_next_awake_none_with_items_returns_none() {
+        let now = Utc::now();
+        // None + items → re-awaken immediately (None)
+        assert_eq!(default_next_awake(None, 1, now), None);
+        assert_eq!(default_next_awake(None, 100, now), None);
+    }
+
+    #[test]
+    fn default_next_awake_none_with_no_items_returns_cooldown() {
+        let now = Utc::now();
+        // None + no items → wait DEFAULT_COOLDOWN
+        let result = default_next_awake(None, 0, now);
+        assert_eq!(result, Some(now + DEFAULT_COOLDOWN));
+    }
 }
