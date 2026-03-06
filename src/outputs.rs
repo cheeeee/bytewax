@@ -164,7 +164,14 @@ impl Drop for StatefulPartition {
         }
         Python::attach(|py| {
             if let Err(err) = self.close(py) {
-                err.write_unraisable(py, None);
+                if std::thread::panicking() {
+                    // During unwinding, avoid double-panic (which aborts).
+                    err.write_unraisable(py, None);
+                } else {
+                    // Normal path: propagate close errors via panic
+                    // so the dataflow reports failure on data-loss.
+                    unwrap_any!(Err::<(), _>(err));
+                }
             }
         });
     }
@@ -496,7 +503,14 @@ impl Drop for StatelessPartition {
         }
         Python::attach(|py| {
             if let Err(err) = self.close(py) {
-                err.write_unraisable(py, None);
+                if std::thread::panicking() {
+                    // During unwinding, avoid double-panic (which aborts).
+                    err.write_unraisable(py, None);
+                } else {
+                    // Normal path: propagate close errors via panic
+                    // so the dataflow reports failure on data-loss.
+                    unwrap_any!(Err::<(), _>(err));
+                }
             }
         });
     }
