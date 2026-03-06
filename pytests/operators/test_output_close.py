@@ -3,8 +3,6 @@
 import subprocess
 import sys
 
-import pytest
-
 
 def test_stateless_sink_close_error_propagates():
     """A DynamicSink partition's close() error must fail the dataflow."""
