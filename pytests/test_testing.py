@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -121,3 +121,89 @@ def test_testing_source_abort_run(recovery_config):
     out.clear()
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [3, 4]
+
+
+def test_testing_source_pause_sets_next_awake():
+    pause_duration = timedelta(seconds=2)
+    inp = TestingSource([0, 1, TestingSource.PAUSE(pause_duration), 2, 3])
+    part = inp.build_part("test", "iterable", None)
+
+    assert part.next_batch() == [0]
+    assert part.next_awake() is None
+    assert part.next_batch() == [1]
+    assert part.next_awake() is None
+
+    before = datetime.now(tz=timezone.utc)
+    assert part.next_batch() == []
+    after = datetime.now(tz=timezone.utc)
+
+    awake = part.next_awake()
+    assert awake is not None
+    assert awake >= before + pause_duration
+    assert awake <= after + pause_duration
+
+
+def test_testing_source_pause_clears_on_subsequent_call():
+    inp = TestingSource([0, TestingSource.PAUSE(timedelta(seconds=1)), 1, 2])
+    part = inp.build_part("test", "iterable", None)
+
+    assert part.next_batch() == [0]
+    assert part.next_batch() == []
+    assert part.next_awake() is not None
+
+    # Next call should clear _next_awake and resume iteration.
+    assert part.next_batch() == [1]
+    assert part.next_awake() is None
+
+    assert part.next_batch() == [2]
+    with raises(StopIteration):
+        part.next_batch()
+    part.close()
+
+
+def test_testing_source_pause_items_before_sentinel_emitted():
+    inp = TestingSource(
+        [0, 1, TestingSource.PAUSE(timedelta(seconds=1)), 2], batch_size=5
+    )
+    part = inp.build_part("test", "iterable", None)
+
+    # With batch_size=5, items 0 and 1 should be emitted before PAUSE.
+    assert part.next_batch() == [0, 1]
+    assert part.next_awake() is not None
+
+    # Resume returns remaining items.
+    assert part.next_batch() == [2]
+    with raises(StopIteration):
+        part.next_batch()
+    part.close()
+
+
+def test_testing_source_pause_zero_duration():
+    inp = TestingSource([0, TestingSource.PAUSE(timedelta(0)), 1])
+    part = inp.build_part("test", "iterable", None)
+
+    assert part.next_batch() == [0]
+    before = datetime.now(tz=timezone.utc)
+    assert part.next_batch() == []
+    awake = part.next_awake()
+    assert awake is not None
+    # Zero duration: next_awake should be approximately now.
+    assert awake <= before + timedelta(seconds=1)
+
+    assert part.next_batch() == [1]
+    assert part.next_awake() is None
+    with raises(StopIteration):
+        part.next_batch()
+    part.close()
+
+
+def test_testing_source_pause_run():
+    inp = [0, 1, TestingSource.PAUSE(timedelta(seconds=0)), 2, 3]
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, TestingSink(out))
+
+    run_main(flow, epoch_interval=ZERO_TD)
+    assert sorted(out) == [0, 1, 2, 3]
