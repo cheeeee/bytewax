@@ -10,7 +10,7 @@ use std::hint::black_box;
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use pyo3::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -80,7 +80,13 @@ fn init_python() {
 /// Create a fresh Python integer object for benchmarking.
 fn make_pyobj() -> Py<PyAny> {
     init_python();
-    Python::attach(|py| 42_i64.into_pyobject(py).expect("into_pyobject").into_any().unbind())
+    Python::attach(|py| {
+        42_i64
+            .into_pyobject(py)
+            .expect("into_pyobject")
+            .into_any()
+            .unbind()
+    })
 }
 
 // ---------------------------------------------------------------------------
