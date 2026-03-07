@@ -69,9 +69,8 @@ def test_branch_raises_on_non_bool_key():
     op.output("out_evens", evens, TestingSink(out_evens))
 
     expect = "must be a `bool`"
-    with raises(RuntimeError):
-        with raises(TypeError, match=re.escape(expect)):
-            run_main(flow)
+    with raises(RuntimeError), raises(TypeError, match=re.escape(expect)):
+        run_main(flow)
 
 
 def build_branch_dataflow(

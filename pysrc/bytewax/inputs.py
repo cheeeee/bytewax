@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import islice
 from typing import (
+    AsyncIterable,
     Callable,
     Generic,
     Iterable,
@@ -22,7 +23,7 @@ from typing import (
     cast,
 )
 
-from typing_extensions import AsyncIterable, TypeVar, override
+from typing_extensions import TypeVar, override
 
 from bytewax._bytewax import AbortExecution
 
@@ -55,7 +56,7 @@ Sn = TypeVar("Sn", default=None)
 """Type of state snapshots but defaults to `None`."""
 
 
-class Source(ABC, Generic[X]):  # noqa: B024
+class Source(ABC, Generic[X]):
     """A location to read input items from.
 
     Base class for all input sources. Do not subclass this.
@@ -439,7 +440,7 @@ class SimplePollingSource(FixedPartitionedSource[X, Sn]):
         :returns: Resume state.
 
         """
-        return cast(Sn, None)
+        return cast("Sn", None)
 
     def resume(self, resume_state: Sn) -> None:
         """Reset the position of the next read of this source.

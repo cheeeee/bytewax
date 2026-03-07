@@ -194,7 +194,7 @@ def test_file_output(tmp_path):
 
     run_main(flow)
 
-    with open(file_path, "r") as f:
+    with open(file_path) as f:
         out = f.readlines()
         assert out == [
             "1\n",
@@ -218,15 +218,15 @@ def test_dir_output(tmp_path):
 
     run_main(flow)
 
-    with open(tmp_path / "part_0", "r") as f:
+    with open(tmp_path / "part_0") as f:
         out = f.readlines()
         assert out == ["0\n"]
 
-    with open(tmp_path / "part_1", "r") as f:
+    with open(tmp_path / "part_1") as f:
         out = f.readlines()
         assert out == ["1\n"]
 
-    with open(tmp_path / "part_2", "r") as f:
+    with open(tmp_path / "part_2") as f:
         out = f.readlines()
         assert out == ["2\n"]
 
@@ -250,7 +250,7 @@ def test_file_output_resume_state(tmp_path):
     part.write_batch(["two5"])
     part.close()
 
-    with open(file_path, "rt") as f:
+    with open(file_path) as f:
         found = f.readlines()
         expected = [
             "one1\n",

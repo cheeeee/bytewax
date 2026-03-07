@@ -34,8 +34,9 @@ use crate::worker::worker_main;
 /// Start the tokio runtime for the webserver.
 /// Keep a reference to the runtime for as long as you need it running.
 fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
-    let mut json_path =
-        PathBuf::from(std::env::var("BYTEWAX_DATAFLOW_API_CACHE_PATH").unwrap_or(".".to_string()));
+    let mut json_path = PathBuf::from(
+        std::env::var("BYTEWAX_DATAFLOW_API_CACHE_PATH").unwrap_or_else(|_| ".".to_string()),
+    );
     json_path.push("dataflow.json");
 
     // Since the dataflow can't change at runtime, we encode it as a
@@ -97,20 +98,21 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 ///
 /// :type flow: bytewax.dataflow.Dataflow
 ///
-/// :arg epoch_interval: System time length of each epoch. Defaults to
+/// :arg `epoch_interval`: System time length of each epoch. Defaults to
 ///     10 seconds.
 ///
-/// :type epoch_interval: typing.Optional[datetime.timedelta]
+/// :type `epoch_interval`: typing.Optional[datetime.timedelta]
 ///
-/// :arg recovery_config: State recovery config. If `None`, state will
+/// :arg `recovery_config`: State recovery config. If `None`, state will
 ///     not be persisted.
 ///
-/// :type recovery_config:
+/// :type `recovery_config`:
 ///     typing.Optional[bytewax.recovery.RecoveryConfig]
 #[pyfunction]
 #[pyo3(
     signature = (flow, *, epoch_interval = None, recovery_config = None)
 )]
+#[allow(clippy::option_if_let_else)]
 pub(crate) fn run_main(
     py: Python,
     flow: Dataflow,
@@ -140,8 +142,8 @@ pub(crate) fn run_main(
                     flow,
                     epoch_interval,
                     recovery_config
-                ))
-            })
+                ));
+            });
         })
     });
 
@@ -213,29 +215,30 @@ pub(crate) fn run_main(
 ///
 /// :type addresses: typing.List[str]
 ///
-/// :arg proc_id: Index of this process in cluster; starts from 0.
+/// :arg `proc_id`: Index of this process in cluster; starts from 0.
 ///
-/// :type proc_id: int
+/// :type `proc_id`: int
 ///
-/// :arg epoch_interval: System time length of each epoch. Defaults to
+/// :arg `epoch_interval`: System time length of each epoch. Defaults to
 ///     10 seconds.
 ///
-/// :type epoch_interval: typing.Optional[datetime.timedelta]
+/// :type `epoch_interval`: typing.Optional[datetime.timedelta]
 ///
-/// :arg recovery_config: State recovery config. If `None`, state will
+/// :arg `recovery_config`: State recovery config. If `None`, state will
 ///     not be persisted.
 ///
-/// :type recovery_config:
+/// :type `recovery_config`:
 ///     typing.Optional[bytewax.recovery.RecoveryConfig]
 ///
-/// :arg worker_count_per_proc: Number of worker threads to start on
+/// :arg `worker_count_per_proc`: Number of worker threads to start on
 ///     each process. Defaults to `1`.
 ///
-/// :type worker_count_per_proc: int
+/// :type `worker_count_per_proc`: int
 #[pyfunction]
 #[pyo3(
     signature = (flow, addresses, proc_id, *, epoch_interval = None, recovery_config = None, worker_count_per_proc = 1)
 )]
+#[allow(clippy::option_if_let_else)]
 pub(crate) fn cluster_main(
     py: Python,
     flow: Dataflow,
@@ -274,7 +277,7 @@ pub(crate) fn cluster_main(
         let should_shutdown_p = should_shutdown.clone();
         let should_shutdown_w = should_shutdown.clone();
         let (tx, rx): (Sender<PyErr>, Receiver<PyErr>) = mpsc::channel();
-        let panic_tx = tx.clone();
+        let panic_tx = tx;
         // Custom hook to push the panic error into a channel
         // before panicking. Save the previous hook to restore later.
         let prev_hook = std::panic::take_hook();
@@ -319,7 +322,7 @@ pub(crate) fn cluster_main(
                         flow,
                         epoch_interval,
                         recovery_config
-                    ))
+                    ));
                 },
             )
             .reraise("error during execution")?;
@@ -371,12 +374,15 @@ pub(crate) fn cli_main(
     epoch_interval: Option<EpochInterval>,
     recovery_config: Option<Py<RecoveryConfig>>,
 ) -> PyResult<()> {
+    // Intentionally kept alive to keep the tokio runtime running for
+    // the webserver; dropping it would shut down the server.
+    #[allow(clippy::collection_is_never_read)]
     let mut _server_rt = None;
 
     // Initialize the tokio runtime for the webserver if we needed.
     if std::env::var("BYTEWAX_DATAFLOW_API_ENABLED").is_ok() {
         _server_rt = Some(start_server_runtime(flow.clone_ref(py))?);
-    };
+    }
 
     let workers_per_process = workers_per_process.unwrap_or(1);
 

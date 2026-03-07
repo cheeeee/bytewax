@@ -37,7 +37,7 @@ def _strip_n(s: str) -> str:
 
 class _FileSourcePartition(StatefulSourcePartition[str, int]):
     def __init__(self, path: Path, batch_size: int, resume_state: Optional[int]):
-        self._f = open(path, "rt")
+        self._f = open(path)
         if resume_state is not None:
             self._f.seek(resume_state)
         it = map(_strip_n, _readlines(self._f))
@@ -208,7 +208,7 @@ class _CSVPartition(StatefulSourcePartition[Dict[str, str], int]):
         resume_state: Optional[int],
         fmtparams: Dict[str, Any],
     ):
-        self._f = open(path, "rt", newline="")
+        self._f = open(path, newline="")
         reader = DictReader(_readlines(self._f), **fmtparams)
         # Force reading of the header.
         _ = reader.fieldnames
@@ -326,7 +326,7 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
 class _FileSinkPartition(StatefulSinkPartition[str, int]):
     def __init__(self, path: Path, resume_state: Optional[int], end: str):
         resume_offset = 0 if resume_state is None else resume_state
-        self._f = open(path, "at")
+        self._f = open(path, "a")
         self._f.seek(resume_offset)
         self._f.truncate()
         self._end = end

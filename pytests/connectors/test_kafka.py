@@ -176,7 +176,7 @@ def test_output(tmp_topic):
     consumer.assign(
         [
             TopicPartition(tmp_topic, i, OFFSET_BEGINNING)
-            for i in topic_metadata.partitions.keys()
+            for i in topic_metadata.partitions
         ]
     )
     out = []

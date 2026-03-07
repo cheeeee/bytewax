@@ -123,7 +123,7 @@ def consume_all(config, topic, timeout=10.0):
     consumer.assign(
         [
             TopicPartition(topic, i, OFFSET_BEGINNING)
-            for i in topic_metadata.partitions.keys()
+            for i in topic_metadata.partitions
         ]
     )
     out = []
@@ -156,7 +156,7 @@ def consume_all_with_headers(config, topic, timeout=10.0):
     consumer.assign(
         [
             TopicPartition(topic, i, OFFSET_BEGINNING)
-            for i in topic_metadata.partitions.keys()
+            for i in topic_metadata.partitions
         ]
     )
     out = []
@@ -844,7 +844,7 @@ def test_kafka_bad_deserializer_error_stream(tmp_topic, kafka_config, producer):
     try:
         from bytewax.connectors.kafka.serde import PlainAvroDeserializer  # noqa: I001, PLC0415
     except ImportError:
-        from pytest import skip  # noqa: I001, PLC0415
+        from pytest import skip  # noqa: PLC0415
 
         skip("fastavro not installed")
 

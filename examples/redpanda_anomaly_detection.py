@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# coding: utf-8
 
 ###################
 # ---IMPORTANT--- #
@@ -41,11 +40,11 @@ class AnomalyDetector(anomaly.HalfSpaceTrees):
     object from the river package and has the following inputs
 
 
-    n_trees – defaults to 10
-    height – defaults to 8
-    window_size – defaults to 250
-    limits (Dict[Hashable, Tuple[float, float]]) – defaults to None
-    seed (int) – defaults to None
+    n_trees - defaults to 10
+    height - defaults to 8
+    window_size - defaults to 250
+    limits (Dict[Hashable, Tuple[float, float]]) - defaults to None
+    seed (int) - defaults to None
 
     """
 
@@ -86,7 +85,7 @@ anomaly_stream = op.stateful_map("anom", normalized_stream, mapper)
 
 
 def format_output(event):
-    instance, (index, t, value, score, is_anomalous) = event
+    instance, (_index, t, value, score, is_anomalous) = event
     return (
         f"{instance}: time = {t}, "
         f"value = {value:.3f}, "

@@ -72,7 +72,7 @@ def is_search(event):
 
 
 def remove_key(user_event):
-    user, event = user_event
+    _user, event = user_event
     return event
 
 

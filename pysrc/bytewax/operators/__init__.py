@@ -2165,9 +2165,10 @@ class _JoinLogic(StatefulLogic[Tuple[int, Any], Tuple, _JoinState]):
     @override
     def on_item(self, value: Tuple[int, Any]) -> Tuple[Iterable[Tuple], bool]:
         join_side, join_value = value
-        if self.insert_mode == "first" and not self.state.is_set(join_side):
-            self.state.set_val(join_side, join_value)
-        elif self.insert_mode == "last":
+        if (
+            self.insert_mode == "first"
+            and not self.state.is_set(join_side)
+        ) or self.insert_mode == "last":
             self.state.set_val(join_side, join_value)
         elif self.insert_mode == "product":
             self.state.add_val(join_side, join_value)
@@ -2489,7 +2490,7 @@ def key_rm(step_id: str, up: KeyedStream[X]) -> Stream[X]:
     """
 
     def shim_mapper(k_v: Tuple[str, X]) -> X:
-        k, v = k_v
+        _k, v = k_v
         return v
 
     return map("map", up, shim_mapper)

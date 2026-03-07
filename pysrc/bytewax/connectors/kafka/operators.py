@@ -65,8 +65,8 @@ def _kafka_error_split(
     """Split the stream from KafkaSource between oks and errs."""
     branch = op.branch("branch", up, lambda msg: isinstance(msg, KafkaSourceMessage))
     # Cast the streams to the proper expected types.
-    oks = cast(Stream[KafkaSourceMessage[K2, V2]], branch.trues)
-    errs = cast(Stream[KafkaError[K, V]], branch.falses)
+    oks = cast("Stream[KafkaSourceMessage[K2, V2]]", branch.trues)
+    errs = cast("Stream[KafkaError[K, V]]", branch.falses)
     return KafkaOpOut(oks, errs)
 
 

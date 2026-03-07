@@ -58,12 +58,6 @@ K = TypeVar("K")
 V = TypeVar("V")
 """Type of value in a Kafka message."""
 
-K_co = TypeVar("K_co", covariant=True)
-"""Type of key in Kafka message."""
-
-V_co = TypeVar("V_co", covariant=True)
-"""Type of value in a Kafka message."""
-
 K2 = TypeVar("K2")
 """Type of key in a modified Kafka message."""
 
@@ -421,18 +415,18 @@ class KafkaSource(
 
 
 @dataclass(frozen=True)
-class KafkaSinkMessage(Generic[K_co, V_co]):
+class KafkaSinkMessage(Generic[K, V]):
     """Message to be written to Kafka."""
 
-    key: K_co
-    value: V_co
+    key: K
+    value: V
 
     topic: Optional[str] = None
     headers: List[Tuple[str, bytes]] = field(default_factory=list)
     partition: Optional[int] = None
     timestamp: int = 0
 
-    def _with_key(self, key: K2) -> "KafkaSinkMessage[K2, V_co]":
+    def _with_key(self, key: K2) -> "KafkaSinkMessage[K2, V]":
         """Returns a new instance with the specified key."""
         # Can't use `dataclasses.replace` directly since it requires
         # the fields you change to be the same type.
@@ -445,7 +439,7 @@ class KafkaSinkMessage(Generic[K_co, V_co]):
             timestamp=self.timestamp,
         )
 
-    def _with_value(self, value: V2) -> "KafkaSinkMessage[K_co, V2]":
+    def _with_value(self, value: V2) -> "KafkaSinkMessage[K, V2]":
         """Returns a new instance with the specified value."""
         return KafkaSinkMessage(
             key=self.key,

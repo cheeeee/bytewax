@@ -37,6 +37,23 @@ serde_test = { version = "1.0" }
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(Py_3_13)'] }
 
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Intentional: all modules are pub(crate) in lib.rs
+redundant_pub_crate = "allow"
+# Intentional: complex domain logic requires many params/lines
+too_many_lines = "allow"
+too_many_arguments = "allow"
+# Intentional: numeric conversions in metrics/timeseries code
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+# PyO3 function signatures require specific types
+needless_pass_by_value = "allow"
+# PyO3 closures need specific captures
+redundant_closure = "allow"
+
 [features]
 extension-module = ["pyo3/extension-module"]
 default = ["extension-module"]

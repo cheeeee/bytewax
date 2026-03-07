@@ -24,18 +24,18 @@ use super::TracingConfig;
 /// This is the recommended approach since it allows the maximum
 /// flexibility in what to do with all the data bytewax can generate.
 ///
-/// :arg service_name: Identifies this dataflow in OTLP.
+/// :arg `service_name`: Identifies this dataflow in OTLP.
 ///
-/// :type service_name: str
+/// :type `service_name`: str
 ///
 /// :arg url: Connection info. Defaults to `"grpc:://127.0.0.1:4317"`.
 ///
 /// :type url: str
 ///
-/// :arg sampling_ratio: Fraction of traces to send between `0.0` and
+/// :arg `sampling_ratio`: Fraction of traces to send between `0.0` and
 ///     `1.0`.
 ///
-/// :type sampling_ratio: float
+/// :type `sampling_ratio`: float
 #[pyclass(module="bytewax.tracing", extends=TracingConfig, from_py_object)]
 #[derive(Clone)]
 pub(crate) struct OtlpTracingConfig {
@@ -51,7 +51,7 @@ pub(crate) struct OtlpTracingConfig {
 impl OtlpTracingConfig {
     #[new]
     #[pyo3(signature=(service_name, url=None, sampling_ratio=1.0))]
-    fn new(
+    const fn new(
         service_name: String,
         url: Option<String>,
         sampling_ratio: f64,
@@ -67,6 +67,7 @@ impl OtlpTracingConfig {
 }
 
 impl TracerBuilder for OtlpTracingConfig {
+    #[allow(clippy::significant_drop_tightening)]
     fn build(&self) -> PyResult<Tracer> {
         // Instantiate the builder
         let mut exporter = opentelemetry_otlp::new_exporter().tonic();

@@ -8,8 +8,8 @@ from bytewax._bytewax import (
 )
 
 __all__ = [
-    "TracingConfig",
     "JaegerConfig",
     "OtlpTracingConfig",
+    "TracingConfig",
     "setup_tracing",
 ]

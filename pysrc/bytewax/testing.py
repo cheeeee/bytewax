@@ -29,10 +29,10 @@ __all__ = [
     "TestingSink",
     "TestingSource",
     "TimeTestingGetter",
+    "cluster_main",
     "ffwd_iter",
     "poll_next_batch",
     "run_main",
-    "cluster_main",
 ]
 
 

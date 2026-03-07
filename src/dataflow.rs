@@ -14,12 +14,12 @@ impl<'py> FromPyObject<'_, 'py> for Dataflow {
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py.import("bytewax.dataflow")?.getattr("Dataflow")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(PyTypeError::new_err(
                 "dataflow must subclass `bytewax.dataflow.Dataflow`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -51,12 +51,12 @@ impl<'py> FromPyObject<'_, 'py> for Operator {
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py.import("bytewax.dataflow")?.getattr("Operator")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(PyTypeError::new_err(
                 "operator must subclass `bytewax.dataflow.Operator`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -84,7 +84,7 @@ impl Operator {
         self.0.getattr(py, "step_id")?.extract(py)
     }
 
-    pub(crate) fn substeps(&self, py: Python) -> PyResult<Vec<Operator>> {
+    pub(crate) fn substeps(&self, py: Python) -> PyResult<Vec<Self>> {
         self.0.getattr(py, "substeps")?.extract(py)
     }
 

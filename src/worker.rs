@@ -28,15 +28,23 @@ use crate::dataflow::Operator;
 use crate::dataflow::StreamId;
 use crate::errors::PythonException;
 use crate::errors::tracked_err;
-use crate::inputs::*;
-use crate::operators::*;
-use crate::outputs::*;
+use crate::inputs::{DynamicSource, EpochInterval, FixedPartitionedSource, Source};
+use crate::operators::{
+    BranchOp, FlatMapBatchOp, InspectDebugOp, MergeOp, RedistributeOp, StatefulBatchOp,
+};
+use crate::outputs::{
+    DynamicOutputOp, DynamicSink, FixedPartitionedSink, PartitionedOutputOp, Sink,
+};
 use crate::pyo3_extensions::TdPyAny;
-use crate::recovery::*;
+use crate::recovery::{
+    BackupInterval, LoadSnapsOp, ReadProgressOp, RecoveryBundle, RecoveryConfig, RecoveryWriteOp,
+    ResumeCalc, ResumeFrom, ResumeFromOp,
+};
 
 /// Bytewax worker.
 ///
 /// Wraps a [`TimelyWorker`].
+#[allow(clippy::struct_field_names)]
 struct Worker<'a, A, F>
 where
     A: Allocate,

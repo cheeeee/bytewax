@@ -136,7 +136,7 @@ stats = op.stateful_map("orderbook", inp, mapper)
 
 # # filter on 0.1% spread as a per
 def just_large_spread(prod_summary):
-    product, summary = prod_summary
+    _product, summary = prod_summary
     return summary.spread / summary.ask_price > 0.0001
 
 

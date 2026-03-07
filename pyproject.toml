@@ -77,9 +77,11 @@ ignore_missing_imports = true
 module = "jsonpickle.*"
 ignore_missing_imports = true
 
-# Third-party modules used in examples/ that lack type stubs.
+# Third-party modules used in examples/ and connectors/ that lack type stubs.
 [[tool.mypy.overrides]]
 module = [
+    "fastavro",
+    "fastavro.*",
     "pandas",
     "pandas.*",
     "fake_web_events",
@@ -101,6 +103,7 @@ ignore_missing_imports = true
 select = [
     "A",
     "B",
+    "C901",
     "D",
     "DTZ",
     "E",
@@ -108,13 +111,26 @@ select = [
     "F",
     "I",
     "PL",
+    "RUF",
+    "SIM",
+    "TC",
+    "UP",
     "W",
 ]
 ignore = [
     "D105",
     "E731",
     "PLR",
+    "RUF005",
+    "SIM102",
+    "SIM105",
+    "SIM108",
+    "SIM115",
+    "UP007",
 ]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
