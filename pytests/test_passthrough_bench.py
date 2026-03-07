@@ -9,7 +9,7 @@ Run: pytest pytests/test_passthrough_bench.py --benchmark-only -v
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.testing import TestingSink, TestingSource
 from pytest import mark
 
 ENTRY_POINTS = ["run_main", "cluster_main-1thread"]
