@@ -196,7 +196,9 @@ class FileSource(FixedPartitionedSource[str, int]):
         _fs_id, path = for_part.split("::", 1)
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
-        assert path == str(self._path), "Can't resume reading from different file"
+        if path != str(self._path):
+            msg = "Can't resume reading from different file"
+            raise ValueError(msg)
         return _FileSourcePartition(self._path, self._batch_size, resume_state)
 
 
@@ -312,9 +314,9 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
     @override
     def build_part(self, step_id: str, for_part: str, resume_state: Optional[Any]):
         _fs_id, path = for_part.split("::", 1)
-        assert path == str(self._file_source._path), (
-            "Can't resume reading from different file"
-        )
+        if path != str(self._file_source._path):
+            msg = "Can't resume reading from different file"
+            raise ValueError(msg)
         return _CSVPartition(
             self._file_source._path,
             self._file_source._batch_size,
@@ -460,5 +462,7 @@ class FileSink(FixedPartitionedSink[str, int]):
     ) -> _FileSinkPartition:
         # TODO: Warn and return None. Then we could support
         # continuation from a different file.
-        assert for_part == str(self._path), "Can't resume writing to different file"
+        if for_part != str(self._path):
+            msg = "Can't resume writing to different file"
+            raise ValueError(msg)
         return _FileSinkPartition(self._path, resume_state, self._end)

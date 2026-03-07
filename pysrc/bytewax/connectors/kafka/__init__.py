@@ -156,7 +156,9 @@ def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
         # List topics one-by-one so if auto-create is turned on,
         # we respect that.
         cluster_metadata = client.list_topics(topic)
-        assert cluster_metadata.topics is not None
+        if cluster_metadata.topics is None:
+            msg = f"no topic metadata returned for Kafka topic `{topic!r}`"
+            raise RuntimeError(msg)
         topic_metadata = cluster_metadata.topics[topic]
         if topic_metadata.error is not None:
             msg = (
@@ -164,7 +166,9 @@ def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
                 f"{topic_metadata.error.str()}"
             )
             raise RuntimeError(msg)
-        assert topic_metadata.partitions is not None
+        if topic_metadata.partitions is None:
+            msg = f"no partition metadata returned for Kafka topic `{topic!r}`"
+            raise RuntimeError(msg)
         part_idxs = topic_metadata.partitions.keys()
         for i in part_idxs:
             yield f"{i}-{topic}"
@@ -390,7 +394,9 @@ class KafkaSource(
         # TODO: Warn and then return None. This might be an indication
         # of dataflow continuation with a new topic (to enable
         # re-partitioning), which is fine.
-        assert topic in self._topics, "Can't resume from different set of Kafka topics"
+        if topic not in self._topics:
+            msg = "Can't resume from different set of Kafka topics"
+            raise ValueError(msg)
 
         config = {
             "bootstrap.servers": ",".join(self._brokers),

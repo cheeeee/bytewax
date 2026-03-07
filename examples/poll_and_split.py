@@ -16,7 +16,10 @@ class HNSource(SimplePollingSource):
     def next_item(self):
         return (
             "GLOBAL_ID",
-            requests.get("https://hacker-news.firebaseio.com/v0/maxitem.json").json(),
+            requests.get(
+                "https://hacker-news.firebaseio.com/v0/maxitem.json",
+                timeout=30,
+            ).json(),
         )
 
 
@@ -24,7 +27,8 @@ def download_metadata(hn_id) -> Optional[dict]:
     # Given an hacker news id returned from the api, fetch metadata
     # Try 3 times, waiting more and more, or give up
     data = requests.get(
-        f"https://hacker-news.firebaseio.com/v0/item/{hn_id}.json"
+        f"https://hacker-news.firebaseio.com/v0/item/{hn_id}.json",
+        timeout=30,
     ).json()
 
     if data is None:

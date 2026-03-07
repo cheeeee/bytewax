@@ -84,7 +84,7 @@ def has_search(session):
 # return a list of search sessions.
 def split_into_searches(wm__user_session):
     user_session = wm__user_session[1]
-    search_session = []
+    search_session: List[Event] = []
     for event in user_session:
         if is_search(event):
             yield search_session

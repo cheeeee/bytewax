@@ -67,8 +67,18 @@ lint: _assert-venv
     vermin --config-file vermin-dev.ini docs/ *.py
     ruff check pysrc/ pytests/ docs/ examples/ *.py
     mypy -p bytewax
-    mypy pytests/ docs/ examples/ *.py
     cargo clippy
+
+# Audit dependencies for known vulnerabilities
+audit: audit-rs audit-py
+
+# Audit Rust dependencies (licenses, advisories, bans, sources)
+audit-rs:
+    cargo deny check
+
+# Audit Python dependencies for known vulnerabilities
+audit-py: _assert-venv
+    pip-audit
 
 # Manually check that all pre-commit hooks pass; runs in CI
 lint-pc: _assert-venv
@@ -83,6 +93,10 @@ pytests := 'pytests/'
 # Run the Python tests; runs in CI
 test-py tests=pytests: _assert-venv
     pytest --benchmark-skip {{tests}}
+
+# Run the Python tests with coverage report
+test-cov tests=pytests: _assert-venv
+    pytest --benchmark-skip --cov=bytewax --cov-report=term-missing {{tests}}
 
 # Run the Python benchmarks; runs in CI
 test-benchmark:

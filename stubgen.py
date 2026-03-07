@@ -435,7 +435,7 @@ def _main():
     stub_src += unparse(stub_mod_ast)
 
     if args.output != "-":
-        with open(args.output, "wt") as out:
+        with open(args.output, "w") as out:
             out.write(stub_src)
     else:
         print(stub_src)

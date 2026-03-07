@@ -275,7 +275,7 @@ def poll_next_batch(part, timeout=timedelta(seconds=5)):
     :raises TimeoutError: If no batch was returned within the timeout.
 
     """
-    batch = []
+    batch: List[Any] = []
     start = datetime.now(timezone.utc)
     while len(batch) <= 0:
         now = datetime.now(timezone.utc)

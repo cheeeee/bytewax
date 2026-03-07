@@ -34,7 +34,7 @@ class _MockApp:
 
 def _fetch_inventory(uri: str) -> Dict:
     app = _MockApp()
-    return intersphinx.fetch_inventory(cast(Sphinx, app), "", uri)
+    return intersphinx.fetch_inventory(cast("Sphinx", app), "", uri)
 
 
 def _main() -> None:

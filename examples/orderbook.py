@@ -101,6 +101,8 @@ class OrderBookState:
         return self.ask_price - self.bid_price  # type: ignore
 
     def summarize(self):
+        assert self.bid_price is not None
+        assert self.ask_price is not None
         return OrderBookSummary(
             bid_price=self.bid_price,
             bid_size=self.bids[self.bid_price],

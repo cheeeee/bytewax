@@ -223,6 +223,8 @@ class OrderBookState:
         Returns:
             OrderBookSummary: A summary of the order book state.
         """
+        assert self.bid_price is not None  # noqa: S101
+        assert self.ask_price is not None  # noqa: S101
         return OrderBookSummary(
             bid_price=self.bid_price,
             bid_size=self.bids[self.bid_price],

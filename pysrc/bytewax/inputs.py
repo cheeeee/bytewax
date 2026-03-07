@@ -343,7 +343,7 @@ class SimplePollingSource(FixedPartitionedSource[X, Sn]):
             super().__init__(interval=timedelta(seconds=10))
 
         def next_item(self):
-            res = requests.get("https://example.com")
+            res = requests.get("https://example.com", timeout=30)  # noqa: S113
             if not res.ok:
                 raise SimplePollingSource.Retry(timedelta(seconds=1))
             return res.text
@@ -580,10 +580,10 @@ def batch_async(
     loop = loop if loop is not None else asyncio.new_event_loop()
     task = None
 
-    async def anext_batch():
+    async def anext_batch() -> List[X]:
         nonlocal task
 
-        batch = []
+        batch: List[X] = []
         # Only try to gather this many items.
         for _ in range(batch_size):
             if task is None:

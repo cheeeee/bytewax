@@ -2,6 +2,7 @@
 name = "bytewax"
 version = "0.21.1"
 edition = "2024"
+rust-version = "1.93.1"
 
 [lib]
 name = "bytewax"
@@ -53,6 +54,14 @@ cast_precision_loss = "allow"
 needless_pass_by_value = "allow"
 # PyO3 closures need specific captures
 redundant_closure = "allow"
+# Restriction cherry-picks: prevent debug/print macros in library code
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
 
 [features]
 extension-module = ["pyo3/extension-module"]

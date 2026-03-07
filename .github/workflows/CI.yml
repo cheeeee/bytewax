@@ -139,6 +139,16 @@ jobs:
         run: |
           . venv/bin/activate
           just lint
+      - name: Audit Rust dependencies
+        shell: bash
+        run: |
+          cargo install cargo-deny --locked
+          cargo deny check
+      - name: Audit Python dependencies
+        shell: bash
+        run: |
+          . venv/bin/activate
+          pip-audit
       - name: Run Rust tests
         shell: bash
         run: |

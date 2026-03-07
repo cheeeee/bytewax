@@ -150,7 +150,10 @@ pub(crate) fn run_main(
     res.map_err(|panic_err| {
         // The worker panicked.
         // Print an empty line to separate rust panic message from the rest.
-        eprintln!();
+        #[allow(clippy::print_stderr)]
+        {
+            eprintln!();
+        }
         if let Some(err) = panic_err.downcast_ref::<PyErr>() {
             // Special case for keyboard interrupt.
             if err.get_type(py).is(PyType::new::<PyKeyboardInterrupt>(py)) {

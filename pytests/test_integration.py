@@ -121,10 +121,7 @@ def consume_all(config, topic, timeout=10.0):
     cluster_metadata = consumer.list_topics(topic)
     topic_metadata = cluster_metadata.topics[topic]
     consumer.assign(
-        [
-            TopicPartition(topic, i, OFFSET_BEGINNING)
-            for i in topic_metadata.partitions
-        ]
+        [TopicPartition(topic, i, OFFSET_BEGINNING) for i in topic_metadata.partitions]
     )
     out = []
     eof_count = 0
@@ -154,10 +151,7 @@ def consume_all_with_headers(config, topic, timeout=10.0):
     cluster_metadata = consumer.list_topics(topic)
     topic_metadata = cluster_metadata.topics[topic]
     consumer.assign(
-        [
-            TopicPartition(topic, i, OFFSET_BEGINNING)
-            for i in topic_metadata.partitions
-        ]
+        [TopicPartition(topic, i, OFFSET_BEGINNING) for i in topic_metadata.partitions]
     )
     out = []
     eof_count = 0
