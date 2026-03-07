@@ -427,6 +427,8 @@ where
         self.map(move |(key, value)| {
             let value = <Py<PyAny>>::from(value);
 
+            // TODO: Convert to proper error handling with `?` operator.
+            #[allow(clippy::unwrap_used)]
             let item: Py<PyAny> =
                 Python::attach(|py| (key, value).into_pyobject(py).unwrap().unbind().into());
 
@@ -822,6 +824,8 @@ where
                                         // `sched_cache`. If not, we
                                         // forgot to remove it when we
                                         // cleared the logic.
+                                        // TODO: Convert to proper error handling with `?` operator.
+                                        #[allow(clippy::unwrap_used)]
                                         let logic = logics.get(&key).unwrap();
 
                                         let (output, is_complete) = with_timer!(

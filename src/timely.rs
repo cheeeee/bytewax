@@ -368,6 +368,8 @@ where
         let (mut output, items) = op_builder.new_output();
 
         op_builder.build(move |mut init_caps| {
+            // Infallible: Timely guarantees init_caps count matches operator output count.
+            #[allow(clippy::unwrap_used)]
             let mut cap = init_caps.pop().unwrap();
             cap.downgrade(&epoch);
             let mut state = Some((cap, self));
@@ -539,6 +541,8 @@ where
                                     let idx = pf.assign(&key);
                                     let wrapped_idx = idx % len;
                                     tracing::trace!("Assigner gave value {idx} % {len}; wrapped to {wrapped_idx}");
+                                    // Infallible: wrapped_idx is idx % len, guaranteed in bounds.
+                                    #[allow(clippy::expect_used)]
                                     let part = known
                                         .iter()
                                         .nth(wrapped_idx)
@@ -569,6 +573,8 @@ where
 /// load balance worker use.
 ///
 /// This will only be run on worker 0, but results will be broadcast.
+// Infallible: all .get().unwrap() calls use keys obtained from iterating the same map.
+#[allow(clippy::unwrap_used)]
 fn calc_primaries<P>(known: &BTreeMap<P, BTreeSet<WorkerIndex>>) -> BTreeMap<P, WorkerIndex>
 where
     P: Clone + Ord + Eq,

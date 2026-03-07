@@ -541,6 +541,8 @@ struct PartitionMetaWriter {
 impl Writer for PartitionMetaWriter {
     type Item = PartitionMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -565,6 +567,8 @@ struct ExecutionMetaWriter {
 impl Writer for ExecutionMetaWriter {
     type Item = ExecutionMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -591,6 +595,8 @@ struct FrontierWriter {
 impl Writer for FrontierWriter {
     type Item = FrontierMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -617,6 +623,8 @@ struct SerializedSnapshotWriter {
 impl Writer for SerializedSnapshotWriter {
     type Item = SerializedSnapshot;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -643,6 +651,8 @@ struct CommitWriter {
 impl Writer for CommitWriter {
     type Item = CommitMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -674,6 +684,8 @@ impl PartitionMetaLoader {
 impl BatchIterator for PartitionMetaLoader {
     type Item = PartitionMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
         if self.done {
             None
@@ -720,6 +732,8 @@ impl ExecutionMetaLoader {
 impl BatchIterator for ExecutionMetaLoader {
     type Item = ExecutionMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
         if self.done {
             None
@@ -762,6 +776,8 @@ impl FrontierLoader {
 impl BatchIterator for FrontierLoader {
     type Item = FrontierMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
         if self.done {
             None
@@ -818,6 +834,8 @@ impl SerializedSnapshotLoader {
         }
     }
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn select(
         &self,
         cursor: Option<(&StepId, &StateKey)>,
@@ -920,6 +938,8 @@ impl CommitLoader {
 impl BatchIterator for CommitLoader {
     type Item = CommitMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
         if self.done {
             None
@@ -952,6 +972,8 @@ struct RecoveryCommitter {
 impl Committer<u64> for RecoveryCommitter {
     /// This will be called when `epoch` is the earliest possible
     /// resume epoch.
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn commit(&mut self, epoch: &u64) {
         tracing::trace!("Committing / GCing epoch {epoch:?}");
         let mut conn = self.conn.borrow_mut();
@@ -993,6 +1015,7 @@ impl Committer<u64> for RecoveryCommitter {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn gc_leaves_only_final_snap() {
     pyo3::Python::initialize();
     let conn = RecoveryPart::init_open_mem();
@@ -1109,6 +1132,8 @@ impl RecoveryPart {
         Ok(Self { conn })
     }
 
+    // Infallible: in-memory SQLite open and setup cannot fail.
+    #[allow(clippy::unwrap_used)]
     fn init_open_mem() -> Self {
         let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));
         setup_conn(&conn).unwrap();
@@ -1281,6 +1306,7 @@ impl RecoveryPart {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_only_parts() {
     pyo3::Python::initialize();
     let conn = RecoveryPart::init_open_mem();
@@ -1293,6 +1319,7 @@ fn resume_from_only_parts() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_all_explict_fronts() {
     pyo3::Python::initialize();
     let conn = RecoveryPart::init_open_mem();
@@ -1317,6 +1344,7 @@ fn resume_from_all_explict_fronts() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_default_fronts() {
     pyo3::Python::initialize();
     let conn = RecoveryPart::init_open_mem();
@@ -1340,6 +1368,7 @@ fn resume_from_default_fronts() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_inconsistent_error() {
     pyo3::Python::initialize();
     Python::attach(|py| {
@@ -1368,6 +1397,7 @@ fn resume_from_inconsistent_error() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn setup_conn_configures_db() {
     pyo3::Python::initialize();
     let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));

@@ -378,6 +378,8 @@ where
                             // that had data, otherwise we'll snapshot
                             // as loads are happening.
                             while let Some(part_key) = awoken.pop_first() {
+                                // TODO: Convert to proper error handling with `?` operator.
+                                #[allow(clippy::unwrap_used)]
                                 let part = parts.get(&part_key).unwrap();
                                 let state = with_timer!(
                                     snapshot_histogram,

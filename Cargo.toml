@@ -58,6 +58,8 @@ redundant_closure = "allow"
 dbg_macro = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
 
 [profile.release]
 lto = "fat"

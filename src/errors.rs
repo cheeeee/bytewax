@@ -183,6 +183,7 @@ fn prepend_caller(caller: &Location, msg: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use pyo3::exceptions::PyValueError;

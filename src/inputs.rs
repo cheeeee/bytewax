@@ -83,6 +83,7 @@ impl EpochInterval {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn test_epochs_per() {
     let found = EpochInterval(TimeDelta::try_milliseconds(5000).unwrap())
         .epochs_per(TimeDelta::try_milliseconds(12000).unwrap());
@@ -90,6 +91,7 @@ fn test_epochs_per() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn test_epochs_per_zero() {
     let found = EpochInterval(TimeDelta::try_milliseconds(5000).unwrap())
         .epochs_per(TimeDelta::try_milliseconds(0).unwrap());
@@ -97,6 +99,8 @@ fn test_epochs_per_zero() {
 }
 
 impl Default for EpochInterval {
+    // Infallible: literal value 10 is within TimeDelta::try_seconds range.
+    #[allow(clippy::unwrap_used)]
     fn default() -> Self {
         Self(TimeDelta::try_seconds(10).unwrap())
     }
@@ -300,7 +304,10 @@ impl FixedPartitionedSource {
 
         op_builder.build(move |mut init_caps| {
             init_caps.downgrade_all(&start_at.0);
+            // Infallible: Timely guarantees init_caps count matches operator output count.
+            #[allow(clippy::unwrap_used)]
             let init_snap_cap = init_caps.pop().unwrap();
+            #[allow(clippy::unwrap_used)]
             let init_downstream_cap = init_caps.pop().unwrap();
             let mut init_caps = Some((init_downstream_cap, init_snap_cap));
 
@@ -445,6 +452,8 @@ impl FixedPartitionedSource {
                                 // TODO could use a notificator here?
                                 // Need to wait for the next epoch of the probe somehow.
                                 // Without this extra time, we would spin up again and waste cycles.
+                                // Infallible: literal value 100 is within TimeDelta::try_milliseconds range.
+                                #[allow(clippy::unwrap_used)]
                                 let delta = TimeDelta::try_milliseconds(100).unwrap();
                                 part_state.next_awake = default_next_awake(Some(now + delta), 0, now);
                                 // A dirty hack?
@@ -772,6 +781,8 @@ impl DynamicSource {
 
             // Inputs must init to the resume epoch.
             init_caps.downgrade_all(&start_at.0);
+            // Infallible: Timely guarantees init_caps count matches operator output count.
+            #[allow(clippy::unwrap_used)]
             let output_cap = init_caps.pop().unwrap();
 
             let next_awake = unwrap_any!(Python::attach(|py| part
@@ -957,6 +968,7 @@ pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use chrono::Utc;

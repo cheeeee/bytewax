@@ -413,6 +413,7 @@ pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 

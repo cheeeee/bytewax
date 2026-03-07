@@ -33,23 +33,19 @@ def test_dir_input():
 def test_dir_input_raises_on_non_exist():
     path = Path("pytests/fixtures/bluster")
 
+    flow = Dataflow("test_df")
     expect = f"input directory `{path}` does not exist"
     with raises(ValueError, match=re.escape(expect)):
-        flow = Dataflow("test_df")
         op.input("inp", flow, DirSource(path))
-
-        run_main(flow)
 
 
 def test_dir_input_raises_on_file():
     path = Path("pytests/fixtures/dir_input/partition-1.txt")
 
+    flow = Dataflow("test_df")
     expect = f"input directory `{path}` is not a directory"
     with raises(ValueError, match=re.escape(expect)):
-        flow = Dataflow("test_df")
         op.input("inp", flow, DirSource(path))
-
-        run_main(flow)
 
 
 def test_file_input():
