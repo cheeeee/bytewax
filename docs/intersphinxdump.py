@@ -10,11 +10,13 @@ role syntax.
 """
 
 import warnings
-from typing import Dict, cast
+from typing import TYPE_CHECKING, Dict, cast
 
 from conf import intersphinx_mapping
-from sphinx.application import Sphinx
 from sphinx.ext import intersphinx
+
+if TYPE_CHECKING:
+    from sphinx.application import Sphinx
 
 
 class _MockConfig:

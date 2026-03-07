@@ -157,6 +157,8 @@ convention = "google"
 docstring-code-format = true
 
 [tool.ruff.lint.per-file-ignores]
+# Docs tutorials: like examples, allow unused unpacking vars and pseudo-random
+"docs/tutorials/**/*.py" = ["D", "RUF059", "S311"]
 # Examples: no docstrings required, allow pseudo-random generators and asserts
 "examples/*.py" = ["D", "S101", "S311"]
 "examples/**/*.py" = ["D", "S101", "S311"]
