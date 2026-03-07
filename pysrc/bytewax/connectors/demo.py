@@ -66,7 +66,7 @@ class RandomMetricSource(FixedPartitionedSource[Tuple[str, float], _RandomMetric
         metric_name: str,
         interval: timedelta = timedelta(seconds=0.7),
         count: int = sys.maxsize,
-        next_random: Callable[[], float] = lambda: random.randrange(0, 10),
+        next_random: Callable[[], float] = lambda: random.randrange(0, 10),  # noqa: S311
     ):
         """Init.
 

@@ -380,9 +380,10 @@ def _gen_inp_fields(sig: Signature, sig_annos: Dict[str, Any]) -> Dict[str, Any]
                     # If not, it's effectively typed `Any`.
                     stream_typ_arg = Any
 
-                if param.kind == Parameter.VAR_POSITIONAL:
-                    inp_fields[name] = _MultiStream[stream_typ_arg]
-                elif param.kind == Parameter.VAR_KEYWORD:
+                if param.kind in (
+                    Parameter.VAR_POSITIONAL,
+                    Parameter.VAR_KEYWORD,
+                ):
                     inp_fields[name] = _MultiStream[stream_typ_arg]
 
     return inp_fields
@@ -518,7 +519,7 @@ def _gen_op_cls(
     return cls
 
 
-def _gen_op_fn(
+def _gen_op_fn(  # noqa: C901
     sig: Signature,
     sig_annos: Dict[str, Any],
     builder: FunctionType,
@@ -527,7 +528,7 @@ def _gen_op_fn(
 ) -> Callable:
     # Wraps ensures that docstrings and type annotations are the same.
     @functools.wraps(builder)
-    def fn(*args, **kwargs):
+    def fn(*args, **kwargs):  # noqa: C901
         try:
             bound = sig.bind(*args, **kwargs)
         except TypeError as ex:
@@ -632,7 +633,7 @@ def _gen_op_fn(
         out = builder(*bound.args, **bound.kwargs)
 
         # Now unwrap output values into the cls.
-        if isinstance(out, Stream) or isinstance(out, _MultiStream):
+        if isinstance(out, (Stream, _MultiStream)):
             cls_vals["down"] = out
         elif isinstance(out, type(None)):
             pass

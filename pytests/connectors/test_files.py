@@ -33,23 +33,19 @@ def test_dir_input():
 def test_dir_input_raises_on_non_exist():
     path = Path("pytests/fixtures/bluster")
 
+    flow = Dataflow("test_df")
     expect = f"input directory `{path}` does not exist"
     with raises(ValueError, match=re.escape(expect)):
-        flow = Dataflow("test_df")
         op.input("inp", flow, DirSource(path))
-
-        run_main(flow)
 
 
 def test_dir_input_raises_on_file():
     path = Path("pytests/fixtures/dir_input/partition-1.txt")
 
+    flow = Dataflow("test_df")
     expect = f"input directory `{path}` is not a directory"
     with raises(ValueError, match=re.escape(expect)):
-        flow = Dataflow("test_df")
         op.input("inp", flow, DirSource(path))
-
-        run_main(flow)
 
 
 def test_file_input():
@@ -194,7 +190,7 @@ def test_file_output(tmp_path):
 
     run_main(flow)
 
-    with open(file_path, "r") as f:
+    with open(file_path) as f:
         out = f.readlines()
         assert out == [
             "1\n",
@@ -218,15 +214,15 @@ def test_dir_output(tmp_path):
 
     run_main(flow)
 
-    with open(tmp_path / "part_0", "r") as f:
+    with open(tmp_path / "part_0") as f:
         out = f.readlines()
         assert out == ["0\n"]
 
-    with open(tmp_path / "part_1", "r") as f:
+    with open(tmp_path / "part_1") as f:
         out = f.readlines()
         assert out == ["1\n"]
 
-    with open(tmp_path / "part_2", "r") as f:
+    with open(tmp_path / "part_2") as f:
         out = f.readlines()
         assert out == ["2\n"]
 
@@ -250,7 +246,7 @@ def test_file_output_resume_state(tmp_path):
     part.write_batch(["two5"])
     part.close()
 
-    with open(file_path, "rt") as f:
+    with open(file_path) as f:
         found = f.readlines()
         expected = [
             "one1\n",

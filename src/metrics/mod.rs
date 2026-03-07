@@ -16,7 +16,7 @@ macro_rules! with_timer {
 }
 
 /// Initialize the global registry for Prometheus metrics,
-/// and create a global MeterProvider.
+/// and create a global `MeterProvider`.
 pub(crate) fn initialize_metrics() -> PyResult<()> {
     // Initialize the global default registry for prometheus metrics
     // as internally it's a lazy static.

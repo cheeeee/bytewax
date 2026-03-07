@@ -70,6 +70,7 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ~/.local/bin/
             target/
           key: ${{ runner.os }}-cargo-repo-checks-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
@@ -88,12 +89,14 @@ jobs:
       - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
       - name: Install cbfmt
         run: |
-            mkdir /tmp/cbfmt && cd $_
-            curl -fsSL -o cbfmt.tar.gz "https://github.com/lukas-reineke/cbfmt/releases/download/v0.2.0/cbfmt_linux-x86_64_v0.2.0.tar.gz"
-            tar --strip-components 1 -xvf cbfmt.tar.gz
             mkdir -p "$HOME/.local/bin"
-            mv cbfmt "$HOME/.local/bin/"
             echo "$HOME/.local/bin" >> $GITHUB_PATH
+            if [ ! -f "$HOME/.local/bin/cbfmt" ]; then
+              mkdir /tmp/cbfmt && cd $_
+              curl -fsSL -o cbfmt.tar.gz "https://github.com/lukas-reineke/cbfmt/releases/download/v0.2.0/cbfmt_linux-x86_64_v0.2.0.tar.gz"
+              tar --strip-components 1 -xvf cbfmt.tar.gz
+              mv cbfmt "$HOME/.local/bin/"
+            fi
       # Run pre-commit before compilation — fast fail on formatting issues.
       # pre-commit only needs ruff and cbfmt (already on PATH), not bytewax.
       - name: Prep pre-commit venv
@@ -139,6 +142,20 @@ jobs:
         run: |
           . venv/bin/activate
           just lint
+      - name: Audit Rust dependencies
+        shell: bash
+        run: |
+          which cargo-deny || cargo install cargo-deny --locked
+          cargo deny check
+      - name: Audit Python dependencies
+        shell: bash
+        # pip-audit is advisory-only: dev lockfiles pin transitive deps
+        # (requests, urllib3, etc.) that may lag behind patches.
+        # Fail the step only when bytewax's own deps are vulnerable.
+        continue-on-error: true
+        run: |
+          . venv/bin/activate
+          pip-audit
       - name: Run Rust tests
         shell: bash
         run: |

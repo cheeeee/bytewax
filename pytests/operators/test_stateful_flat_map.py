@@ -10,7 +10,7 @@ def test_stateful_map_logic_discard_on_none():
         return None, None
 
     logic = _StatefulFlatMapLogic("test_step", mapper, None)
-    (out, discard) = logic.on_item(1)
+    (_out, discard) = logic.on_item(1)
 
     assert discard == StatefulLogic.DISCARD
 
@@ -31,9 +31,7 @@ def test_stateful_flat_map():
     out = []
 
     def filter_smaller(last, new):
-        if last is None:
-            return (new, [new])
-        elif new > last:
+        if last is None or new > last:
             return (new, [new])
         else:
             return (new, [])

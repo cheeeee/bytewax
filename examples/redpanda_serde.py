@@ -133,4 +133,4 @@ val_ser = PlainAvroSerializer(schema=out_val_schema)
 serialized = kop.serialize("ser", avgs, key_serializer=key_ser, val_serializer=val_ser)
 
 op.inspect("inspect-serialized", serialized)
-kop.output("kafka-out", serialized, brokers=KAFKA_BROKERS, topic=OUT_TOPIC)
+kop.output("kafka-out", serialized, brokers=KAFKA_BROKERS, topic=OUT_TOPIC)  # type: ignore[arg-type]

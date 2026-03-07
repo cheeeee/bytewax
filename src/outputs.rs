@@ -24,8 +24,11 @@ use crate::operators::ExtractKeyOp;
 use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
-use crate::recovery::*;
-use crate::timely::*;
+use crate::recovery::{FilterSnapsOp, Snapshot, StateChange, StateKey, StepId};
+use crate::timely::{
+    AsWorkerExt, AssignPrimariesOp, ClockStream, EagerNotificator, InBuffer, IntoBroadcastOp,
+    OpInputHandleEx, PartitionFn, PartitionOp, RouteOp, WorkerCount, WorkerIndex, routed_exchange,
+};
 use crate::unwrap_any;
 use crate::with_timer;
 
@@ -39,12 +42,12 @@ impl<'py> FromPyObject<'_, 'py> for Sink {
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py.import("bytewax.outputs")?.getattr("Sink")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "sink must subclass `bytewax.outputs.Sink`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -79,12 +82,12 @@ impl<'py> FromPyObject<'_, 'py> for FixedPartitionedSink {
         let abc = py
             .import("bytewax.outputs")?
             .getattr("FixedPartitionedSink")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "fixed partitioned sink must subclass `bytewax.outputs.FixedPartitionedSink`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -128,12 +131,12 @@ impl<'py> FromPyObject<'_, 'py> for StatefulPartition {
         let abc = py
             .import("bytewax.outputs")?
             .getattr("StatefulSinkPartition")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "stateful sink partition must subclass `bytewax.outputs.StatefulSinkPartition`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -276,26 +279,28 @@ where
             .with_description("`snapshot` duration in seconds")
             .init();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
         ];
 
         op_builder.build(move |init_caps| {
+            // First `StateKey` is partition, second is data
+            // routing.
+            type PartToInBufferMap = BTreeMap<StateKey, Vec<(StateKey, TdPyAny)>>;
+
             let parts: BTreeMap<StateKey, StatefulPartition> = BTreeMap::new();
             // Which partitions were written to in this epoch. We only
             // snapshot those.
             let awoken: BTreeSet<StateKey> = BTreeSet::new();
 
             let mut routed_tmp = Vec::new();
-            // First `StateKey` is partition, second is data
-            // routing.
-            type PartToInBufferMap = BTreeMap<StateKey, Vec<(StateKey, TdPyAny)>>;
             let mut items_inbuf: BTreeMap<S::Timestamp, PartToInBufferMap> = BTreeMap::new();
             let mut loads_inbuf = InBuffer::new();
             let mut ncater = EagerNotificator::new(init_caps, (parts, awoken));
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
+                    #[allow(clippy::iter_with_drain)]
                     routed_input.for_each(|cap, incoming| {
                         let epoch = cap.time();
                         assert!(routed_tmp.is_empty());
@@ -351,7 +356,7 @@ where
                                         awoken.insert(part_key);
                                     }
                                 });
-                            };
+                            }
                         },
                         |caps, (parts, awoken)| {
                             let clock_cap = &caps[0];
@@ -373,6 +378,8 @@ where
                             // that had data, otherwise we'll snapshot
                             // as loads are happening.
                             while let Some(part_key) = awoken.pop_first() {
+                                // TODO: Convert to proper error handling with `?` operator.
+                                #[allow(clippy::unwrap_used)]
                                 let part = parts.get(&part_key).unwrap();
                                 let state = with_timer!(
                                     snapshot_histogram,
@@ -436,12 +443,12 @@ impl<'py> FromPyObject<'_, 'py> for DynamicSink {
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py.import("bytewax.outputs")?.getattr("DynamicSink")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "dynamic sink must subclass `bytewax.outputs.DynamicSink`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -471,12 +478,12 @@ impl<'py> FromPyObject<'_, 'py> for StatelessPartition {
         let abc = py
             .import("bytewax.outputs")?
             .getattr("StatelessSinkPartition")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "stateless sink partition must subclass `bytewax.outputs.StatelessSinkPartition`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -556,7 +563,7 @@ where
             .with_description("`write_batch` duration in seconds")
             .init();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", worker_index.0.to_string()),
         ];
 
@@ -574,7 +581,7 @@ where
                         let batch: Vec<Py<PyAny>> = tmp_incoming
                             .split_off(0)
                             .into_iter()
-                            .map(|item| item.into())
+                            .map(std::convert::Into::into)
                             .collect();
                         item_inp_count.add(batch.len() as u64, &labels);
                         with_timer!(

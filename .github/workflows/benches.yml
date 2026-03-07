@@ -104,7 +104,7 @@ jobs:
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
       - uses: extractions/setup-just@v3
       - name: Download wheel
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v7
         with:
           name: bench-wheel-${{ matrix.python-version }}
           path: dist/

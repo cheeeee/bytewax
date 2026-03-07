@@ -1,0 +1,58 @@
+[graph]
+targets = []
+all-features = false
+no-default-features = true
+
+[advisories]
+ignore = [
+    # All from transitive opentelemetry 0.20 / timely deps — can't update without breaking changes
+    { id = "RUSTSEC-2024-0387", reason = "opentelemetry_api merged; requires otel 0.21+ upgrade" },
+    { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; transitive from columnation" },
+    { id = "RUSTSEC-2024-0437", reason = "protobuf recursion crash; transitive from prometheus 0.13" },
+    { id = "RUSTSEC-2025-0123", reason = "opentelemetry-jaeger unmaintained; requires otel migration" },
+    { id = "RUSTSEC-2025-0141", reason = "bincode unmaintained; transitive from timely" },
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "Unlicense",
+]
+
+[[licenses.clarify]]
+name = "encoding_rs"
+expression = "(Apache-2.0 OR MIT) AND BSD-3-Clause"
+license-files = [{ path = "COPYRIGHT", hash = 0x39f8ad31 }]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+skip = [
+    { crate = "axum@0.6.20", reason = "tonic 0.9 pulls in axum 0.6, bytewax uses 0.5" },
+    { crate = "axum-core@0.3.4", reason = "transitive from tonic's axum 0.6" },
+    { crate = "bitflags@1.3.2", reason = "older deps still use bitflags 1.x" },
+    { crate = "hashbrown@0.12.3", reason = "transitive from older opentelemetry indexmap" },
+    { crate = "hashbrown@0.14.5", reason = "rusqlite uses older hashbrown" },
+    { crate = "indexmap@1.9.3", reason = "opentelemetry_api uses older indexmap" },
+    { crate = "matchit@0.7.3", reason = "tonic's axum 0.6 uses matchit 0.7" },
+    { crate = "socket2@0.5.10", reason = "hyper 0.14 uses socket2 0.5" },
+]
+skip-tree = [
+    { crate = "synstructure@0.12.6", reason = "abomonation_derive uses old synstructure" },
+    { crate = "windows-sys", reason = "foundational crate that bumps too frequently for shared versions" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = [
+    "https://github.com/TimelyDataflow/timely-dataflow.git",
+    "https://github.com/frankmcsherry/columnation",
+]

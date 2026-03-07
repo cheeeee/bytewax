@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# coding: utf-8
 
 ###################
 # ---IMPORTANT--- #
@@ -83,7 +82,7 @@ windowed_stream = win.collect_window("window", keyed_stream, cc, wc)
 # Calculate the average of the values for each window, and
 # format the data to a string
 def format_event(event):
-    key, (metadata, data) = event
+    key, (_metadata, data) = event
     values = [x[0] for x in data]
     dates = [datetime.fromisoformat(x[1]) for x in data]
     return (

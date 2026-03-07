@@ -29,10 +29,10 @@ __all__ = [
     "TestingSink",
     "TestingSource",
     "TimeTestingGetter",
+    "cluster_main",
     "ffwd_iter",
     "poll_next_batch",
     "run_main",
-    "cluster_main",
 ]
 
 
@@ -275,7 +275,7 @@ def poll_next_batch(part, timeout=timedelta(seconds=5)):
     :raises TimeoutError: If no batch was returned within the timeout.
 
     """
-    batch = []
+    batch: List[Any] = []
     start = datetime.now(timezone.utc)
     while len(batch) <= 0:
         now = datetime.now(timezone.utc)

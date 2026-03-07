@@ -50,7 +50,11 @@ use tracing::instrument;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
 use crate::pyo3_extensions::TdPyAny;
-use crate::timely::*;
+use crate::timely::{
+    AsWorkerExt, BatchIterator, CapabilityIterEx, ClockStream, Committer, EagerNotificator,
+    FrontierEx, InBuffer, IntoStreamOnceAtOp, OpInputHandleEx, PartitionedCommitOp,
+    PartitionedLoadOp, PartitionedWriteOp, WorkerCount, WorkerIndex, Writer,
+};
 use crate::unwrap_any;
 
 /// IDs a specific recovery partition.
@@ -167,12 +171,13 @@ impl<'py> IntoPyObject<'py> for BackupInterval {
     type Output = Bound<'py, PyAny>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.0.into_pyobject(py).map(|b| b.into_any())
+        self.0.into_pyobject(py).map(pyo3::Bound::into_any)
     }
 }
 
 impl<'py> FromPyObject<'_, 'py> for BackupInterval {
     type Error = PyErr;
+    #[allow(clippy::option_if_let_else)]
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(duration) = obj.extract::<TimeDelta>() {
             Ok(Self(duration))
@@ -296,18 +301,18 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<Vec<u8>>);
 
 /// Configuration settings for recovery.
 ///
-/// :arg db_dir: Local filesystem directory to search for recovery
+/// :arg `db_dir`: Local filesystem directory to search for recovery
 ///     database partitions.
 ///
-/// :type db_dir: pathlib.Path
+/// :type `db_dir`: pathlib.Path
 ///
-/// :arg backup_interval: Amount of system time to wait to permanently
+/// :arg `backup_interval`: Amount of system time to wait to permanently
 ///     delete a state snapshot after it is no longer needed. You
 ///     should set this to the interval at which you are backing up
 ///     the recovery partitions off of the workers into archival
 ///     storage (e.g. S3). Defaults to zero duration.
 ///
-/// :type backup_interval: typing.Optional[datetime.timedelta]
+/// :type `backup_interval`: typing.Optional[datetime.timedelta]
 #[pyclass(module = "bytewax.recovery")]
 pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
@@ -337,8 +342,8 @@ impl RecoveryConfig {
         let sqlite_ext = OsStr::new("sqlite3");
         if !self.db_dir.is_dir() {
             return Err(PyFileNotFoundError::new_err(format!(
-                "recovery directory {:?} does not exist; see the `bytewax.recovery` module docstring for more info",
-                self.db_dir
+                "recovery directory {} does not exist; see the `bytewax.recovery` module docstring for more info",
+                self.db_dir.display()
             )));
         }
         for entry in fs::read_dir(self.db_dir.clone()).reraise("Error listing recovery DB dir")? {
@@ -437,7 +442,7 @@ impl<T> PythonException<T> for Result<T, rusqlite_migration::Error> {
     }
 }
 
-/// Wrapper around an SQLite DB connection with methods for our
+/// Wrapper around an `SQLite` DB connection with methods for our
 /// recovery operations.
 struct RecoveryPart {
     /// This is [`Rc<RefCell>`] so that our reader and writer structs
@@ -536,6 +541,8 @@ struct PartitionMetaWriter {
 impl Writer for PartitionMetaWriter {
     type Item = PartitionMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -560,6 +567,8 @@ struct ExecutionMetaWriter {
 impl Writer for ExecutionMetaWriter {
     type Item = ExecutionMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -586,6 +595,8 @@ struct FrontierWriter {
 impl Writer for FrontierWriter {
     type Item = FrontierMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -612,6 +623,8 @@ struct SerializedSnapshotWriter {
 impl Writer for SerializedSnapshotWriter {
     type Item = SerializedSnapshot;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -638,6 +651,8 @@ struct CommitWriter {
 impl Writer for CommitWriter {
     type Item = CommitMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -661,7 +676,7 @@ struct PartitionMetaLoader {
 }
 
 impl PartitionMetaLoader {
-    fn new(conn: Rc<RefCell<Connection>>) -> Self {
+    const fn new(conn: Rc<RefCell<Connection>>) -> Self {
         Self { conn, done: false }
     }
 }
@@ -669,8 +684,12 @@ impl PartitionMetaLoader {
 impl BatchIterator for PartitionMetaLoader {
     type Item = PartitionMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
-        if !self.done {
+        if self.done {
+            None
+        } else {
             let batch = self
                 .conn
                 .borrow_mut()
@@ -695,8 +714,6 @@ impl BatchIterator for PartitionMetaLoader {
                 .collect();
             self.done = true;
             Some(batch)
-        } else {
-            None
         }
     }
 }
@@ -707,7 +724,7 @@ struct ExecutionMetaLoader {
 }
 
 impl ExecutionMetaLoader {
-    fn new(conn: Rc<RefCell<Connection>>) -> Self {
+    const fn new(conn: Rc<RefCell<Connection>>) -> Self {
         Self { conn, done: false }
     }
 }
@@ -715,8 +732,12 @@ impl ExecutionMetaLoader {
 impl BatchIterator for ExecutionMetaLoader {
     type Item = ExecutionMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
-        if !self.done {
+        if self.done {
+            None
+        } else {
             let batch = self
                 .conn
                 .borrow_mut()
@@ -737,8 +758,6 @@ impl BatchIterator for ExecutionMetaLoader {
                 .collect();
             self.done = true;
             Some(batch)
-        } else {
-            None
         }
     }
 }
@@ -749,7 +768,7 @@ struct FrontierLoader {
 }
 
 impl FrontierLoader {
-    fn new(conn: Rc<RefCell<Connection>>) -> Self {
+    const fn new(conn: Rc<RefCell<Connection>>) -> Self {
         Self { conn, done: false }
     }
 }
@@ -757,8 +776,12 @@ impl FrontierLoader {
 impl BatchIterator for FrontierLoader {
     type Item = FrontierMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
-        if !self.done {
+        if self.done {
+            None
+        } else {
             let batch = self
                 .conn
                 .borrow()
@@ -779,8 +802,6 @@ impl BatchIterator for FrontierLoader {
                 .collect();
             self.done = true;
             Some(batch)
-        } else {
-            None
         }
     }
 }
@@ -804,7 +825,7 @@ struct SerializedSnapshotLoader {
 }
 
 impl SerializedSnapshotLoader {
-    fn new(conn: Rc<RefCell<Connection>>, before: ResumeEpoch, batch_size: usize) -> Self {
+    const fn new(conn: Rc<RefCell<Connection>>, before: ResumeEpoch, batch_size: usize) -> Self {
         Self {
             conn,
             before,
@@ -813,6 +834,8 @@ impl SerializedSnapshotLoader {
         }
     }
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn select(
         &self,
         cursor: Option<(&StepId, &StateKey)>,
@@ -907,7 +930,7 @@ struct CommitLoader {
 }
 
 impl CommitLoader {
-    fn new(conn: Rc<RefCell<Connection>>) -> Self {
+    const fn new(conn: Rc<RefCell<Connection>>) -> Self {
         Self { conn, done: false }
     }
 }
@@ -915,8 +938,12 @@ impl CommitLoader {
 impl BatchIterator for CommitLoader {
     type Item = CommitMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
-        if !self.done {
+        if self.done {
+            None
+        } else {
             let batch = self
                 .conn
                 .borrow()
@@ -933,8 +960,6 @@ impl BatchIterator for CommitLoader {
                 .collect();
             self.done = true;
             Some(batch)
-        } else {
-            None
         }
     }
 }
@@ -947,6 +972,8 @@ struct RecoveryCommitter {
 impl Committer<u64> for RecoveryCommitter {
     /// This will be called when `epoch` is the earliest possible
     /// resume epoch.
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn commit(&mut self, epoch: &u64) {
         tracing::trace!("Committing / GCing epoch {epoch:?}");
         let mut conn = self.conn.borrow_mut();
@@ -988,6 +1015,7 @@ impl Committer<u64> for RecoveryCommitter {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn gc_leaves_only_final_snap() {
     pyo3::Python::initialize();
     let conn = RecoveryPart::init_open_mem();
@@ -1083,9 +1111,8 @@ impl RecoveryPart {
         ));
         setup_conn(&conn)?;
 
-        let _self = Self { conn };
-        _self
-            .part_writer()
+        let this = Self { conn };
+        this.part_writer()
             .write_batch(vec![PartitionMeta(index, count)]);
 
         Ok(())
@@ -1105,6 +1132,8 @@ impl RecoveryPart {
         Ok(Self { conn })
     }
 
+    // Infallible: in-memory SQLite open and setup cannot fail.
+    #[allow(clippy::unwrap_used)]
     fn init_open_mem() -> Self {
         let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));
         setup_conn(&conn).unwrap();
@@ -1277,6 +1306,7 @@ impl RecoveryPart {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_only_parts() {
     pyo3::Python::initialize();
     let conn = RecoveryPart::init_open_mem();
@@ -1289,6 +1319,7 @@ fn resume_from_only_parts() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_all_explict_fronts() {
     pyo3::Python::initialize();
     let conn = RecoveryPart::init_open_mem();
@@ -1313,6 +1344,7 @@ fn resume_from_all_explict_fronts() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_default_fronts() {
     pyo3::Python::initialize();
     let conn = RecoveryPart::init_open_mem();
@@ -1336,6 +1368,7 @@ fn resume_from_default_fronts() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_inconsistent_error() {
     pyo3::Python::initialize();
     Python::attach(|py| {
@@ -1364,6 +1397,7 @@ fn resume_from_inconsistent_error() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn setup_conn_configures_db() {
     pyo3::Python::initialize();
     let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));
@@ -1390,20 +1424,23 @@ fn setup_conn_configures_db() {
 
 /// Create and init a set of empty recovery partitions.
 ///
-/// :arg db_dir: Local directory to create partitions in.
+/// :arg `db_dir`: Local directory to create partitions in.
 ///
-/// :type db_dir: pathlib.Path
+/// :type `db_dir`: pathlib.Path
 ///
 /// :arg count: Number of partitions to create.
 ///
 /// :type count: int
 #[pyfunction]
 fn init_db_dir(_py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<()> {
-    tracing::warn!("Creating {count:?} recovery partitions in {db_dir:?}");
+    tracing::warn!(
+        "Creating {count:?} recovery partitions in {}",
+        db_dir.display()
+    );
     if !db_dir.is_dir() {
         return Err(PyFileNotFoundError::new_err(format!(
-            "recovery directory {:?} does not exist; please create it with `mkdir`",
-            db_dir
+            "recovery directory {} does not exist; please create it with `mkdir`",
+            db_dir.display()
         )));
     }
     for index in count.iter() {
@@ -1499,7 +1536,7 @@ where
                             // epoch as one too small. That's fine, we
                             // just might resume further back than is
                             // optimal.
-                            let frontier_epoch = frontier.unwrap_or(*cap.time() + 1);
+                            let frontier_epoch = frontier.unwrap_or_else(|| *cap.time() + 1);
                             let front =
                                 FrontierMeta(ex_num, worker_index, WorkerFrontier(frontier_epoch));
                             tracing::trace!("Frontier now epoch {frontier_epoch:?}");
@@ -1552,6 +1589,7 @@ impl<S> SerializeSnapshotOp<S> for Stream<S, Snapshot>
 where
     S: Scope<Timestamp = u64>,
 {
+    #[allow(clippy::iter_with_drain)]
     fn ser_snap(&self) -> Stream<S, ((StepId, StateKey), SerializedSnapshot)> {
         // Effectively map-with-epoch.
         self.unary(Pipeline, "ser_snap", move |_init_cap, _info| {
@@ -1619,6 +1657,7 @@ impl<S> DeserializeSnapshotOp<S> for Stream<S, SerializedSnapshot>
 where
     S: Scope,
 {
+    #[allow(clippy::option_if_let_else)]
     fn de_snap(&self) -> Stream<S, Snapshot> {
         self.map(
             move |SerializedSnapshot(step_id, state_key, _snap_epoch, ser_change)| {

@@ -272,10 +272,10 @@ class _EventClockLogic(ClockLogic[V, _EventClockState]):
         try:
             watermark_base = value_event_timestamp - self.wait_for_system_duration
             if watermark_base > watermark:
-                assert watermark_base >= self.state.watermark_base
+                assert watermark_base >= self.state.watermark_base  # noqa: S101
                 self.state.watermark_base = watermark_base
 
-                assert self._system_now >= self.state.system_time_of_max_event
+                assert self._system_now >= self.state.system_time_of_max_event  # noqa: S101
                 self.state.system_time_of_max_event = self._system_now
 
                 return value_event_timestamp, watermark_base
@@ -732,7 +732,7 @@ class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
     @override
     def open_for(self, timestamp: datetime) -> Iterable[int]:
         for window_id, meta in self.state.sessions.items():
-            assert meta.open_time <= meta.close_time
+            assert meta.open_time <= meta.close_time  # noqa: S101
             until_open = meta.open_time - timestamp
             since_close = timestamp - meta.close_time
             if until_open <= ZERO_TD and since_close <= ZERO_TD:
@@ -1120,7 +1120,7 @@ class _WindowLogic(
         events: List[_WindowEvent[V, W]] = []
         for value in values:
             value_timestamp, watermark = self.clock.on_item(value)
-            assert watermark >= self._last_watermark
+            assert watermark >= self._last_watermark  # noqa: S101
             self._last_watermark = watermark
 
             if value_timestamp < watermark:
@@ -1136,7 +1136,7 @@ class _WindowLogic(
     @override
     def on_notify(self) -> Tuple[Iterable[_WindowEvent[V, W]], bool]:
         watermark = self.clock.on_notify()
-        assert watermark >= self._last_watermark
+        assert watermark >= self._last_watermark  # noqa: S101
         self._last_watermark = watermark
 
         events = list(self._flush_queue(watermark))
@@ -1145,7 +1145,7 @@ class _WindowLogic(
     @override
     def on_eof(self) -> Tuple[Iterable[_WindowEvent[V, W]], bool]:
         watermark = self.clock.on_eof()
-        assert watermark >= self._last_watermark
+        assert watermark >= self._last_watermark  # noqa: S101
         self._last_watermark = watermark
 
         events = list(self._flush_queue(watermark))
@@ -1226,7 +1226,7 @@ class WindowOut(Generic[V, W_co]):
 def _unwrap_emit(id_typ_obj: _WindowEvent[V, W]) -> Optional[Tuple[int, W]]:
     window_id, typ, obj = id_typ_obj
     if typ == "E":
-        value = cast(W, obj)
+        value = cast("W", obj)
         return (window_id, value)
     else:
         return None
@@ -1235,7 +1235,7 @@ def _unwrap_emit(id_typ_obj: _WindowEvent[V, W]) -> Optional[Tuple[int, W]]:
 def _unwrap_late(id_typ_obj: _WindowEvent[V, W]) -> Optional[Tuple[int, V]]:
     window_id, typ, obj = id_typ_obj
     if typ == "L":
-        value = cast(V, obj)
+        value = cast("V", obj)
         return (window_id, value)
     else:
         return None
@@ -1246,7 +1246,7 @@ def _unwrap_meta(
 ) -> Optional[Tuple[int, WindowMetadata]]:
     window_id, typ, obj = id_typ_obj
     if typ == "M":
-        meta = cast(WindowMetadata, obj)
+        meta = cast("WindowMetadata", obj)
         return (window_id, meta)
     else:
         return None
@@ -1867,9 +1867,9 @@ class _JoinWindowLogic(WindowLogic[Tuple[int, V], Tuple, _JoinState]):
     @override
     def on_value(self, value: Tuple[int, V]) -> Iterable[Tuple]:
         join_side, join_value = value
-        if self.insert_mode == "first" and not self.state.is_set(join_side):
-            self.state.set_val(join_side, join_value)
-        elif self.insert_mode == "last":
+        if (
+            self.insert_mode == "first" and not self.state.is_set(join_side)
+        ) or self.insert_mode == "last":
             self.state.set_val(join_side, join_value)
         elif self.insert_mode == "product":
             self.state.add_val(join_side, join_value)

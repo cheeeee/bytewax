@@ -29,7 +29,7 @@ class CounterSource(SimplePollingSource[int]):
 
 
 def calc_avg(key__batch):
-    key, batch = key__batch
+    _key, batch = key__batch
     return sum(batch) / len(batch)
 
 

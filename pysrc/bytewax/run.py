@@ -144,7 +144,7 @@ class _EnvDefault(argparse.Action):
         if envvar:
             default = os.environ.get(envvar, default)
             kwargs["help"] += f" [env: {envvar}]"
-        super(_EnvDefault, self).__init__(default=default, **kwargs)
+        super().__init__(default=default, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, values)

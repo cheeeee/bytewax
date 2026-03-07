@@ -7,7 +7,9 @@ import typing as t
 
 import typing_extensions as te
 from autodoc2.render.myst_ import MystRenderer
-from autodoc2.utils import ItemData
+
+if t.TYPE_CHECKING:
+    from autodoc2.utils import ItemData
 
 _BASE_SPLIT = re.compile(r"(\s*[\[\]\(\),]+\s*)")
 
@@ -54,8 +56,7 @@ class BytewaxRenderer(MystRenderer):
             yield "```{toctree}"
             yield ":titlesonly:"
             yield ""
-            for name in sorted(visible_submodules):
-                yield name
+            yield from sorted(visible_submodules)
             yield "```"
             yield ""
 
@@ -95,7 +96,7 @@ class BytewaxRenderer(MystRenderer):
         # note, here we can cannot yield by line,
         # because we need to look ahead to know the length of the backticks
 
-        lines: t.List[str] = [f":canonical: {item['full_name']}"]
+        lines: list[str] = [f":canonical: {item['full_name']}"]
         if self.no_index(item):
             lines += [":noindex:"]
         lines += [""]

@@ -40,7 +40,7 @@ pub(crate) struct TracingConfig;
 #[pymethods]
 impl TracingConfig {
     #[new]
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {}
     }
 }
@@ -52,6 +52,7 @@ pub(crate) trait TracerBuilder {
 }
 
 impl PyConfigClass<Box<dyn TracerBuilder + Send>> for Py<TracingConfig> {
+    #[allow(clippy::option_if_let_else)]
     fn downcast(&self, py: Python) -> PyResult<Box<dyn TracerBuilder + Send>> {
         if let Ok(otlp_conf) = self.extract::<OtlpTracingConfig>(py) {
             Ok(Box::new(otlp_conf))
@@ -76,6 +77,7 @@ struct BytewaxTracer {
     rt: tokio::runtime::Runtime,
 }
 
+#[allow(clippy::option_if_let_else)]
 fn get_log_level(level: Option<String>) -> PyResult<LevelFilter> {
     if let Some(level) = level {
         match level.to_lowercase().as_str() {
@@ -93,6 +95,8 @@ fn get_log_level(level: Option<String>) -> PyResult<LevelFilter> {
     }
 }
 
+// Async is required by tokio::spawn even though no await is used.
+#[allow(clippy::unused_async)]
 async fn setup(
     log_level: LevelFilter,
     tracer: Option<Box<dyn TracerBuilder + Send>>,
@@ -124,7 +128,7 @@ async fn setup(
 }
 
 impl BytewaxTracer {
-    /// Call this with a TracingConfig subclass to configure tracing.
+    /// Call this with a `TracingConfig` subclass to configure tracing.
     /// Returns a guard that you have to keep in scope for the
     /// whole execution of the code you want to trace.
     pub(crate) fn setup(
@@ -161,15 +165,15 @@ impl BytewaxTracer {
 /// tracer = setup_tracing()
 /// ```
 ///
-/// :arg tracing_config: The specific backend you want to use.
+/// :arg `tracing_config`: The specific backend you want to use.
 ///
-/// :type tracing_config: bytewax.tracing.TracingConfig
+/// :type `tracing_config`: bytewax.tracing.TracingConfig
 ///
-/// :arg log_level: String of the log level. One of `"ERROR"`,
+/// :arg `log_level`: String of the log level. One of `"ERROR"`,
 ///     `"WARN"`, `"INFO"`, `"DEBUG"`, `"TRACE"`. Defaults to
 ///     `"ERROR"`.
 ///
-/// :type log_level: str
+/// :type `log_level`: str
 #[pyfunction]
 #[pyo3(signature = (tracing_config=None, log_level=None))]
 fn setup_tracing(
@@ -197,6 +201,7 @@ pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use pyo3::exceptions::PyValueError;

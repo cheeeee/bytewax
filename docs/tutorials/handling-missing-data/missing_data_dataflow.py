@@ -131,7 +131,8 @@ class StatefulImputer:
 
     def impute_value(self, key, value):
         """Impute the value in the windowed array."""
-        return self.windowed_array.impute_value(value)
+        self.windowed_array.push(value)
+        return self.windowed_array.impute_value()
 
 
 # end-stateful-imputer

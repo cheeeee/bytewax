@@ -1,4 +1,4 @@
-//! Newtypes around PyO3 types which allow easier interfacing with
+//! Newtypes around `PyO3` types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
 use crate::try_unwrap;
 
@@ -216,7 +216,7 @@ impl PartialEq for TdPyAny {
 /// in order to not need to have a dual `TdPyX` vs `TdBoundX`.
 pub(crate) struct TdPyCallable(SafePy<PyAny>);
 
-/// Have PyO3 do type checking to ensure we only make from callable
+/// Have `PyO3` do type checking to ensure we only make from callable
 /// objects.
 impl<'py> FromPyObject<'_, 'py> for TdPyCallable {
     type Error = PyErr;
@@ -225,11 +225,10 @@ impl<'py> FromPyObject<'_, 'py> for TdPyCallable {
             let py = ob.py();
             Ok(Self(SafePy::from(ob.as_unbound().clone_ref(py))))
         } else {
-            let msg = if let Ok(type_name) = ob.get_type().qualname() {
-                format!("'{type_name}' object is not callable")
-            } else {
-                "object is not callable".to_string()
-            };
+            let msg = ob.get_type().qualname().map_or_else(
+                |_| "object is not callable".to_string(),
+                |type_name| format!("'{type_name}' object is not callable"),
+            );
             Err(PyTypeError::new_err(msg))
         }
     }

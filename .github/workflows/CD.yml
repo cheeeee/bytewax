@@ -55,6 +55,7 @@ jobs:
       - name: Check the Version and Quantity of Wheel files
         env:
           NEEDED_VERSION: ${{steps.get-info.outputs.bytewax-version}}
+          # 7 python versions (3.8-3.14) × 6 targets (3 linux + 2 macos + 1 windows)
           WHEELS: 42
         run: |
           cd wheels

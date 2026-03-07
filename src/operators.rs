@@ -27,8 +27,11 @@ use crate::errors::PythonException;
 use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
-use crate::recovery::*;
-use crate::timely::*;
+use crate::recovery::{FilterSnapsOp, ResumeEpoch, Snapshot, StateChange, StateKey, StepId};
+use crate::timely::{
+    AsWorkerExt, CapabilityIterEx, ClockStream, EagerNotificator, FrontierEx, InBuffer,
+    OpInputHandleEx, PartitionOp, routed_exchange,
+};
 use crate::unwrap_any;
 use crate::with_timer;
 
@@ -47,17 +50,14 @@ impl<S> BranchOp<S> for Stream<S, TdPyAny>
 where
     S: Scope,
 {
-    fn branch(
-        &self,
-        step_id: StepId,
-        predicate: TdPyCallable,
-    ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)> {
+    fn branch(&self, step_id: StepId, predicate: TdPyCallable) -> PyResult<(Self, Self)> {
         let mut op_builder = OperatorBuilder::new(format!("{step_id}.branch"), self.scope());
 
         let mut self_handle = op_builder.new_input(self, Pipeline);
         let (mut trues_output, trues) = op_builder.new_output();
         let (mut falses_output, falses) = op_builder.new_output();
 
+        #[allow(clippy::iter_with_drain)]
         op_builder.build(move |_| {
             let mut inbuf = Vec::new();
             move |_frontiers| {
@@ -91,7 +91,7 @@ where
                             }
                             Ok(())
                         }());
-                    })
+                    });
                 });
             }
         });
@@ -138,12 +138,7 @@ where
     S: Scope,
     S::Timestamp: TotalOrder,
 {
-    fn flat_map_batch(
-        &self,
-        _py: Python,
-        step_id: StepId,
-        mapper: TdPyCallable,
-    ) -> PyResult<Stream<S, TdPyAny>> {
+    fn flat_map_batch(&self, _py: Python, step_id: StepId, mapper: TdPyCallable) -> PyResult<Self> {
         let this_worker = self.scope().w_index();
 
         let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
@@ -166,7 +161,7 @@ where
             .with_description("`flat_map_batch` `mapper` duration in seconds")
             .init();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
         ];
 
@@ -250,7 +245,7 @@ where
         _py: Python,
         step_id: StepId,
         inspector: TdPyCallable,
-    ) -> PyResult<(Stream<S, TdPyAny>, ClockStream<S>)> {
+    ) -> PyResult<(Self, ClockStream<S>)> {
         let this_worker = self.scope().w_index();
 
         let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
@@ -285,7 +280,7 @@ where
                                 unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     let inspector = inspector.bind(py);
 
-                                    for item in items.iter() {
+                                    for item in &items {
                                         let item = item.bind(py);
 
                                         inspector
@@ -356,7 +351,7 @@ where
     S: Scope,
     D: ExchangeData,
 {
-    fn redistribute(&self, _step_id: StepId) -> Stream<S, D> {
+    fn redistribute(&self, _step_id: StepId) -> Self {
         self.exchange(move |_| fastrand::u64(..))
     }
 }
@@ -379,6 +374,7 @@ where
 
         let (mut downstream_output, downstream) = op_builder.new_output();
 
+        #[allow(clippy::iter_with_drain)]
         op_builder.build(move |_| {
             let mut inbuf = Vec::new();
             move |_frontiers| {
@@ -431,6 +427,8 @@ where
         self.map(move |(key, value)| {
             let value = <Py<PyAny>>::from(value);
 
+            // TODO: Convert to proper error handling with `?` operator.
+            #[allow(clippy::unwrap_used)]
             let item: Py<PyAny> =
                 Python::attach(|py| (key, value).into_pyobject(py).unwrap().unbind().into());
 
@@ -463,12 +461,12 @@ impl<'py> FromPyObject<'_, 'py> for StatefulBatchLogic {
         let abc = py
             .import("bytewax.operators")?
             .getattr("StatefulBatchLogic")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(PyTypeError::new_err(
                 "logic must subclass `bytewax.operators.StatefulBatchLogic`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -487,9 +485,9 @@ impl<'py> FromPyObject<'_, 'py> for IsComplete {
                 unwrap_any!(ob.get_type().qualname())
             )
         })? {
-            Ok(IsComplete::Discard)
+            Ok(Self::Discard)
         } else {
-            Ok(IsComplete::Retain)
+            Ok(Self::Retain)
         }
     }
 }
@@ -563,7 +561,7 @@ where
         builder: TdPyCallable,
         resume_epoch: ResumeEpoch,
         loads: &Stream<S, Snapshot>,
-    ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)> {
+    ) -> PyResult<(Self, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
 
         let loads = loads.filter_snaps(step_id.clone());
@@ -629,7 +627,7 @@ where
             .with_description("`snapshot` duration in seconds")
             .init();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
         ];
 
@@ -799,7 +797,7 @@ where
                                             kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
 
-                                        if let IsComplete::Discard = is_complete {
+                                        if matches!(is_complete, IsComplete::Discard) {
                                             logics.remove(&key);
                                             sched_cache.remove(&key);
                                         }
@@ -826,6 +824,8 @@ where
                                         // `sched_cache`. If not, we
                                         // forgot to remove it when we
                                         // cleared the logic.
+                                        // TODO: Convert to proper error handling with `?` operator.
+                                        #[allow(clippy::unwrap_used)]
                                         let logic = logics.get(&key).unwrap();
 
                                         let (output, is_complete) = with_timer!(
@@ -841,20 +841,16 @@ where
                                             kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
 
-                                        if let IsComplete::Discard = is_complete {
+                                        if matches!(is_complete, IsComplete::Discard) {
                                             logics.remove(&key);
-                                            sched_cache.remove(&key);
-                                        } else {
-                                            // Even if we don't
-                                            // discard the logic, the
-                                            // previous scheduled
-                                            // notification only
-                                            // should fire once. The
-                                            // logic can re-schedule
-                                            // it by still returning
-                                            // it in `notify_at`.
-                                            sched_cache.remove(&key);
                                         }
+                                        // Even if we don't discard the
+                                        // logic, the previous scheduled
+                                        // notification only should fire
+                                        // once. The logic can re-schedule
+                                        // it by still returning it in
+                                        // `notify_at`.
+                                        sched_cache.remove(&key);
 
                                         awoken_keys_this_activation.insert(key);
                                     }
@@ -869,7 +865,7 @@ where
                                 let mut discarded_keys = Vec::new();
 
                                 unwrap_any!(Python::attach(|py| -> PyResult<()> {
-                                    for (key, logic) in logics.iter() {
+                                    for (key, logic) in &logics {
                                         let (output, is_complete) = with_timer!(
                                             on_eof_histogram,
                                             labels,
@@ -883,7 +879,7 @@ where
                                             kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
 
-                                        if let IsComplete::Discard = is_complete {
+                                        if matches!(is_complete, IsComplete::Discard) {
                                             discarded_keys.push(key.clone());
                                         }
 
@@ -904,7 +900,7 @@ where
                             // times.
                             if !awoken_keys_this_activation.is_empty() {
                                 unwrap_any!(Python::attach(|py| -> PyResult<()> {
-                                    for key in awoken_keys_this_activation.iter() {
+                                    for key in &awoken_keys_this_activation {
                                         // It's possible the logic was
                                         // discarded on a previous
                                         // activation but the epoch

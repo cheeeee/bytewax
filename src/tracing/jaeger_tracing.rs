@@ -19,19 +19,19 @@ use crate::errors::PythonException;
 /// OTEL_EXPORTER_JAEGER_AGENT_PORT="6831"
 /// ```
 ///
-/// :arg service_name: Identifies this dataflow in Jaeger.
+/// :arg `service_name`: Identifies this dataflow in Jaeger.
 ///
-/// :type service_name: str
+/// :type `service_name`: str
 ///
 /// :arg endpoint: Connection info. Takes precidence over env vars.
 ///     Defaults to `"127.0.0.1:6831"`.
 ///
 /// :type endpoint: str
 ///
-/// :arg sampling_ratio: Fraction of traces to send between `0.0` and
+/// :arg `sampling_ratio`: Fraction of traces to send between `0.0` and
 ///     `1.0`.
 ///
-/// :type sampling_ratio: float
+/// :type `sampling_ratio`: float
 #[pyclass(module="bytewax.tracing", extends=TracingConfig, from_py_object)]
 #[derive(Clone)]
 pub(crate) struct JaegerConfig {
@@ -47,7 +47,7 @@ pub(crate) struct JaegerConfig {
 impl JaegerConfig {
     #[new]
     #[pyo3(signature=(service_name, endpoint=None, sampling_ratio=1.0))]
-    fn new(
+    const fn new(
         service_name: String,
         endpoint: Option<String>,
         sampling_ratio: f64,

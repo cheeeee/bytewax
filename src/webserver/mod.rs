@@ -43,6 +43,8 @@ pub(crate) async fn run_webserver(dataflow_json: String) -> PyResult<()> {
         .raise_with::<PyRuntimeError>(|| format!("Unable to create local webserver at port {port}"))
 }
 
+// TODO: Convert to proper error handling with `?` operator.
+#[allow(clippy::unwrap_used)]
 async fn get_dataflow(Extension(state): Extension<Arc<State>>) -> impl IntoResponse {
     // We are building a custom response here, as the returned value
     // from our helper function is JSON formatted string.

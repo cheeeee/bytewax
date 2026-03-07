@@ -61,13 +61,13 @@ def recovery_config(tmp_path):
 
     """
     init_db_dir(tmp_path, 1)
-    yield RecoveryConfig(str(tmp_path))
+    return RecoveryConfig(str(tmp_path))
 
 
 @fixture
 def now():
     """Get the current `datetime` in UTC."""
-    yield datetime.now(timezone.utc)
+    return datetime.now(timezone.utc)
 
 
 def pytest_addoption(parser):

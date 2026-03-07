@@ -1,7 +1,7 @@
 //! Internal macros
 
 /// Unwraps using [`std::panic::panic_any`], needed to panic with any structure in Rust 2021.
-/// See [https://github.com/rust-lang/rust/issues/78500]
+/// See [<https://github.com/rust-lang/rust/issues/78500>]
 #[macro_export]
 macro_rules! unwrap_any {
     ($pyfunc:expr) => {
@@ -10,9 +10,13 @@ macro_rules! unwrap_any {
 }
 
 #[macro_export]
-/// Creates a new scope for the expression where the `?` operator can be used if the expression
-/// returns the same type of the `?` call, then unwraps the result using [`std::panic::panic_any`]
-/// This can be used to panic and send a proper error message to the python interpreter.
+/// Creates a new scope for the expression where the `?` operator can
+/// be used.
+///
+/// If the expression returns the same type of the `?` call, then
+/// unwraps the result using [`std::panic::panic_any`].
+/// This can be used to panic and send a proper error message to the
+/// python interpreter.
 ///
 /// ```rust
 /// // Example usage

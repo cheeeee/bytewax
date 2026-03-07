@@ -58,12 +58,6 @@ K = TypeVar("K")
 V = TypeVar("V")
 """Type of value in a Kafka message."""
 
-K_co = TypeVar("K_co", covariant=True)
-"""Type of key in Kafka message."""
-
-V_co = TypeVar("V_co", covariant=True)
-"""Type of value in a Kafka message."""
-
 K2 = TypeVar("K2")
 """Type of key in a modified Kafka message."""
 
@@ -162,7 +156,9 @@ def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
         # List topics one-by-one so if auto-create is turned on,
         # we respect that.
         cluster_metadata = client.list_topics(topic)
-        assert cluster_metadata.topics is not None
+        if cluster_metadata.topics is None:
+            msg = f"no topic metadata returned for Kafka topic `{topic!r}`"
+            raise RuntimeError(msg)
         topic_metadata = cluster_metadata.topics[topic]
         if topic_metadata.error is not None:
             msg = (
@@ -170,7 +166,9 @@ def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
                 f"{topic_metadata.error.str()}"
             )
             raise RuntimeError(msg)
-        assert topic_metadata.partitions is not None
+        if topic_metadata.partitions is None:
+            msg = f"no partition metadata returned for Kafka topic `{topic!r}`"
+            raise RuntimeError(msg)
         part_idxs = topic_metadata.partitions.keys()
         for i in part_idxs:
             yield f"{i}-{topic}"
@@ -396,7 +394,9 @@ class KafkaSource(
         # TODO: Warn and then return None. This might be an indication
         # of dataflow continuation with a new topic (to enable
         # re-partitioning), which is fine.
-        assert topic in self._topics, "Can't resume from different set of Kafka topics"
+        if topic not in self._topics:
+            msg = "Can't resume from different set of Kafka topics"
+            raise ValueError(msg)
 
         config = {
             "bootstrap.servers": ",".join(self._brokers),
@@ -421,18 +421,18 @@ class KafkaSource(
 
 
 @dataclass(frozen=True)
-class KafkaSinkMessage(Generic[K_co, V_co]):
+class KafkaSinkMessage(Generic[K, V]):
     """Message to be written to Kafka."""
 
-    key: K_co
-    value: V_co
+    key: K
+    value: V
 
     topic: Optional[str] = None
     headers: List[Tuple[str, bytes]] = field(default_factory=list)
     partition: Optional[int] = None
     timestamp: int = 0
 
-    def _with_key(self, key: K2) -> "KafkaSinkMessage[K2, V_co]":
+    def _with_key(self, key: K2) -> "KafkaSinkMessage[K2, V]":
         """Returns a new instance with the specified key."""
         # Can't use `dataclasses.replace` directly since it requires
         # the fields you change to be the same type.
@@ -445,7 +445,7 @@ class KafkaSinkMessage(Generic[K_co, V_co]):
             timestamp=self.timestamp,
         )
 
-    def _with_value(self, value: V2) -> "KafkaSinkMessage[K_co, V2]":
+    def _with_value(self, value: V2) -> "KafkaSinkMessage[K, V2]":
         """Returns a new instance with the specified value."""
         return KafkaSinkMessage(
             key=self.key,

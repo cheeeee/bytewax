@@ -12,7 +12,7 @@ use pyo3::types::PyTracebackMethods;
 import_exception!(bytewax.errors, BytewaxRuntimeError);
 
 /// A trait to build a python exception with a custom stacktrace from
-/// anything that can be converted into a PyResult.
+/// anything that can be converted into a `PyResult`.
 pub(crate) trait PythonException<T> {
     /// Only this needs to be implemented.
     fn into_pyresult(self) -> PyResult<T>;
@@ -56,7 +56,7 @@ pub(crate) trait PythonException<T> {
         })
     }
 
-    /// Create a new BytewaxRuntimeError with a custom message, setting
+    /// Create a new `BytewaxRuntimeError` with a custom message, setting
     /// the current exception as it's cause.
     ///
     /// Example:
@@ -79,7 +79,7 @@ pub(crate) trait PythonException<T> {
         })
     }
 
-    /// Create a new BytewaxRuntimeError with a custom message, setting
+    /// Create a new `BytewaxRuntimeError` with a custom message, setting
     /// the current exception as it's cause.
     ///
     /// Example:
@@ -106,7 +106,7 @@ pub(crate) trait PythonException<T> {
 
 // The obvious implementation for PyResult
 impl<T> PythonException<T> for PyResult<T> {
-    fn into_pyresult(self) -> PyResult<T> {
+    fn into_pyresult(self) -> Self {
         self
     }
 }
@@ -154,7 +154,7 @@ impl<T> PythonException<T> for Result<T, std::num::ParseIntError> {
     }
 }
 
-/// Use this function to create a PyErr with location tracking.
+/// Use this function to create a `PyErr` with location tracking.
 #[track_caller]
 pub(crate) fn tracked_err<PyErrType: PyTypeInfo>(msg: &str) -> PyErr {
     let caller = Location::caller();
@@ -164,9 +164,8 @@ pub(crate) fn tracked_err<PyErrType: PyTypeInfo>(msg: &str) -> PyErr {
 fn build_message(py: Python, caller: &Location, err: &PyErr, msg: &str) -> String {
     let msg = prepend_caller(caller, msg);
 
-    let err_msg = get_traceback(py, err)
-        .map(|tb| format!("{err}\n{tb}"))
-        .unwrap_or_else(|| format!("{err}"));
+    let err_msg =
+        get_traceback(py, err).map_or_else(|| format!("{err}"), |tb| format!("{err}\n{tb}"));
 
     format!("{msg}\nCaused by => {err_msg}")
 }
@@ -184,6 +183,7 @@ fn prepend_caller(caller: &Location, msg: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use pyo3::exceptions::PyValueError;

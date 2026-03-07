@@ -13,8 +13,8 @@ from bytewax._bytewax import (
 
 __all__ = [
     "InconsistentPartitionsError",
-    "NoPartitionsError",
     "MissingPartitionsError",
+    "NoPartitionsError",
     "RecoveryConfig",
     "init_db_dir",
 ]

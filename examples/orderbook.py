@@ -101,6 +101,8 @@ class OrderBookState:
         return self.ask_price - self.bid_price  # type: ignore
 
     def summarize(self):
+        assert self.bid_price is not None
+        assert self.ask_price is not None
         return OrderBookSummary(
             bid_price=self.bid_price,
             bid_size=self.bids[self.bid_price],
@@ -136,7 +138,7 @@ stats = op.stateful_map("orderbook", inp, mapper)
 
 # # filter on 0.1% spread as a per
 def just_large_spread(prod_summary):
-    product, summary = prod_summary
+    _product, summary = prod_summary
     return summary.spread / summary.ask_price > 0.0001
 
 

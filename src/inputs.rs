@@ -31,8 +31,11 @@ use crate::errors::PythonException;
 use crate::errors::tracked_err;
 use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
-use crate::recovery::*;
-use crate::timely::*;
+use crate::recovery::{FilterSnapsOp, ResumeEpoch, Snapshot, StateChange, StateKey, StepId};
+use crate::timely::{
+    AsWorkerExt, AssignPrimariesOp, CapabilityIterEx, FrontierEx, InBuffer, IntoBroadcastOp,
+    RouteOp, WorkerCount, WorkerIndex, routed_exchange,
+};
 use crate::unwrap_any;
 use crate::with_timer;
 
@@ -52,6 +55,7 @@ pub(crate) struct EpochInterval(TimeDelta);
 
 impl<'py> FromPyObject<'_, 'py> for EpochInterval {
     type Error = PyErr;
+    #[allow(clippy::option_if_let_else)]
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(duration) = ob.extract::<TimeDelta>() {
             Ok(Self(duration))
@@ -79,6 +83,7 @@ impl EpochInterval {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn test_epochs_per() {
     let found = EpochInterval(TimeDelta::try_milliseconds(5000).unwrap())
         .epochs_per(TimeDelta::try_milliseconds(12000).unwrap());
@@ -86,6 +91,7 @@ fn test_epochs_per() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn test_epochs_per_zero() {
     let found = EpochInterval(TimeDelta::try_milliseconds(5000).unwrap())
         .epochs_per(TimeDelta::try_milliseconds(0).unwrap());
@@ -93,6 +99,8 @@ fn test_epochs_per_zero() {
 }
 
 impl Default for EpochInterval {
+    // Infallible: literal value 10 is within TimeDelta::try_seconds range.
+    #[allow(clippy::unwrap_used)]
     fn default() -> Self {
         Self(TimeDelta::try_seconds(10).unwrap())
     }
@@ -115,12 +123,12 @@ impl<'py> FromPyObject<'_, 'py> for Source {
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py.import("bytewax.inputs")?.getattr("Source")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(PyTypeError::new_err(
                 "source must subclass `bytewax.inputs.Source`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -155,16 +163,17 @@ impl<'py> FromPyObject<'_, 'py> for FixedPartitionedSource {
         let abc = py
             .import("bytewax.inputs")?
             .getattr("FixedPartitionedSource")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(PyTypeError::new_err(
                 "fixed partitioned source must subclass `bytewax.inputs.FixedPartitionedSource`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
 
+#[allow(clippy::option_if_let_else)]
 fn default_next_awake(
     res: Option<DateTime<Utc>>,
     batch_len: usize,
@@ -198,10 +207,7 @@ struct PartitionedPartState {
 
 impl PartitionedPartState {
     fn awake_due(&self, now: DateTime<Utc>) -> bool {
-        match self.next_awake {
-            None => true,
-            Some(next_awake) => now >= next_awake,
-        }
+        self.next_awake.is_none_or(|next_awake| now >= next_awake)
     }
 }
 
@@ -237,7 +243,7 @@ impl FixedPartitionedSource {
     pub(crate) fn partitioned_input<S>(
         self,
         py: Python,
-        scope: &mut S,
+        scope: &S,
         step_id: StepId,
         epoch_interval: EpochInterval,
         probe: &ProbeHandle<u64>,
@@ -292,13 +298,16 @@ impl FixedPartitionedSource {
             .with_description("`snapshot` duration in seconds")
             .init();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
         ];
 
         op_builder.build(move |mut init_caps| {
             init_caps.downgrade_all(&start_at.0);
+            // Infallible: Timely guarantees init_caps count matches operator output count.
+            #[allow(clippy::unwrap_used)]
             let init_snap_cap = init_caps.pop().unwrap();
+            #[allow(clippy::unwrap_used)]
             let init_downstream_cap = init_caps.pop().unwrap();
             let mut init_caps = Some((init_downstream_cap, init_snap_cap));
 
@@ -317,6 +326,7 @@ impl FixedPartitionedSource {
                         primaries_inbuf.extend(*epoch, incoming);
                     });
 
+                    #[allow(clippy::iter_with_drain)]
                     loads_input.for_each(|cap, incoming| {
                         let load_epoch = cap.time();
                         assert!(tmp.is_empty());
@@ -424,7 +434,7 @@ impl FixedPartitionedSource {
 
                     let mut downstream_handle = downstream_output.activate();
                     let mut snaps_handle = snaps_output.activate();
-                    for (part_key, part_state) in parts.iter_mut() {
+                    for (part_key, part_state) in &mut parts {
                         tracing::trace_span!("partition", part_key = ?part_key).in_scope(|| {
                             assert!(
                                 *part_state.downstream_cap.time() == *part_state.snap_cap.time()
@@ -437,7 +447,38 @@ impl FixedPartitionedSource {
                             // finished the previous epoch before
                             // emitting more data to have
                             // backpressure.
-                            if !is_ahead {
+                            if is_ahead {
+                                tracing::debug!("partition is ahead of others and must wait");
+                                // TODO could use a notificator here?
+                                // Need to wait for the next epoch of the probe somehow.
+                                // Without this extra time, we would spin up again and waste cycles.
+                                // Infallible: literal value 100 is within TimeDelta::try_milliseconds range.
+                                #[allow(clippy::unwrap_used)]
+                                let delta = TimeDelta::try_milliseconds(100).unwrap();
+                                part_state.next_awake = default_next_awake(Some(now + delta), 0, now);
+                                // A dirty hack?
+                                // Trying to resolve an issue when one partition
+                                // increasingly lags behind of another in multiworker setup.
+                                //
+                                // The bug appears when a pair of kafka consumers
+                                // read from uneven number of partitions.
+                                //
+                                // So, the first worker gets one extra parition
+                                // and always has work to do.
+                                //
+                                // And the second worker, given some time, starts to spend
+                                // most of its time waiting for another.
+                                //
+                                // The problem is, this waiting time counts towards its snapshot.
+                                // So, when the first worker finally makes its own snapshot
+                                // and the output epoch increases, the second worker gets
+                                // to run only one `next_batch`, after which it is time
+                                // to make a snapshot and wait again.
+                                //
+                                // This way, we do not count time towards snapshot while waiting for another partition.
+                                // And the partition can read all it can after the snapshot of its late neighbor.
+                                part_state.epoch_started = now;
+                            } else {
                                 let mut eof = false;
                                 // Separately check wheither we should
                                 // call `next_batch` because we need
@@ -532,35 +573,6 @@ impl FixedPartitionedSource {
                                         Ok(())
                                     }));
                                 }
-                            } else {
-                                tracing::debug!("partition is ahead of others and must wait");
-                                // TODO could use a notificator here?
-                                // Need to wait for the next epoch of the probe somehow.
-                                // Without this extra time, we would spin up again and waste cycles.
-                                let delta = TimeDelta::try_milliseconds(100).unwrap();
-                                part_state.next_awake = default_next_awake(Some(now + delta), 0, now);
-                                // A dirty hack?
-                                // Trying to resolve an issue when one partition
-                                // increasingly lags behind of another in multiworker setup.
-                                //
-                                // The bug appears when a pair of kafka consumers
-                                // read from uneven number of partitions.
-                                //
-                                // So, the first worker gets one extra parition
-                                // and always has work to do.
-                                //
-                                // And the second worker, given some time, starts to spend
-                                // most of its time waiting for another.
-                                //
-                                // The problem is, this waiting time counts towards its snapshot.
-                                // So, when the first worker finally makes its own snapshot
-                                // and the output epoch increases, the second worker gets
-                                // to run only one `next_batch`, after which it is time
-                                // to make a snapshot and wait again.
-                                //
-                                // This way, we do not count time towards snapshot while waiting for another partition.
-                                // And the partition can read all it can after the snapshot of its late neighbor.
-                                part_state.epoch_started = now;
                             }
                         });
                     }
@@ -602,12 +614,12 @@ impl<'py> FromPyObject<'_, 'py> for StatefulPartition {
         let abc = py
             .import("bytewax.inputs")?
             .getattr("StatefulSourcePartition")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "stateful source partition must subclass `bytewax.inputs.StatefulSourcePartition`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -680,12 +692,12 @@ impl<'py> FromPyObject<'_, 'py> for DynamicSource {
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py.import("bytewax.inputs")?.getattr("DynamicSource")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "dynamic source must subclass `bytewax.inputs.DynamicSource`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -699,10 +711,7 @@ struct DynamicPartState {
 
 impl DynamicPartState {
     fn awake_due(&self, now: DateTime<Utc>) -> bool {
-        match self.next_awake {
-            None => true,
-            Some(next_awake) => now >= next_awake,
-        }
+        self.next_awake.is_none_or(|next_awake| now >= next_awake)
     }
 }
 
@@ -763,7 +772,7 @@ impl DynamicSource {
             .with_description("`next_batch` duration in seconds")
             .init();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", worker_index.0.to_string()),
         ];
 
@@ -772,6 +781,8 @@ impl DynamicSource {
 
             // Inputs must init to the resume epoch.
             init_caps.downgrade_all(&start_at.0);
+            // Infallible: Timely guarantees init_caps count matches operator output count.
+            #[allow(clippy::unwrap_used)]
             let output_cap = init_caps.pop().unwrap();
 
             let next_awake = unwrap_any!(Python::attach(|py| part
@@ -893,12 +904,12 @@ impl<'py> FromPyObject<'_, 'py> for StatelessPartition {
         let abc = py
             .import("bytewax.inputs")?
             .getattr("StatelessSourcePartition")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "stateless source partition must subclass `bytewax.inputs.StatelessSourcePartition`",
             ))
-        } else {
-            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -957,6 +968,7 @@ pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use chrono::Utc;

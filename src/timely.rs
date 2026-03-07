@@ -57,7 +57,7 @@ where
     T: Timestamp,
     D: Clone,
 {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             tmp: Vec::new(),
             buffer: BTreeMap::new(),
@@ -127,7 +127,7 @@ where
     T: Timestamp + TotalOrder,
 {
     fn simplify(&self) -> Option<T> {
-        self.iter().flat_map(|ma| ma.simplify()).min()
+        self.iter().filter_map(FrontierEx::simplify).min()
     }
 }
 
@@ -172,7 +172,7 @@ where
 {
     /// We have to retain separate capabilities per-output. This seems
     /// to be only documented in
-    /// https://github.com/TimelyDataflow/timely-dataflow/pull/187
+    /// <https://github.com/TimelyDataflow/timely-dataflow/pull/187>
     caps_state: Option<(Vec<Capability<T>>, D)>,
     queue: BTreeSet<T>,
 }
@@ -181,7 +181,7 @@ impl<T, D> EagerNotificator<T, D>
 where
     T: Timestamp + TotalOrder,
 {
-    pub(crate) fn new(init_caps: Vec<Capability<T>>, init_state: D) -> Self {
+    pub(crate) const fn new(init_caps: Vec<Capability<T>>, init_state: D) -> Self {
         Self {
             caps_state: Some((init_caps, init_state)),
             queue: BTreeSet::new(),
@@ -310,7 +310,7 @@ pub(crate) struct WorkerCount(pub(crate) usize);
 
 impl WorkerCount {
     /// Iterate through all workers in this cluster.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = WorkerIndex> + use<> {
+    pub(crate) fn iter(self) -> impl Iterator<Item = WorkerIndex> {
         (0..self.0).map(WorkerIndex)
     }
 }
@@ -368,6 +368,8 @@ where
         let (mut output, items) = op_builder.new_output();
 
         op_builder.build(move |mut init_caps| {
+            // Infallible: Timely guarantees init_caps count matches operator output count.
+            #[allow(clippy::unwrap_used)]
             let mut cap = init_caps.pop().unwrap();
             cap.downgrade(&epoch);
             let mut state = Some((cap, self));
@@ -539,6 +541,8 @@ where
                                     let idx = pf.assign(&key);
                                     let wrapped_idx = idx % len;
                                     tracing::trace!("Assigner gave value {idx} % {len}; wrapped to {wrapped_idx}");
+                                    // Infallible: wrapped_idx is idx % len, guaranteed in bounds.
+                                    #[allow(clippy::expect_used)]
                                     let part = known
                                         .iter()
                                         .nth(wrapped_idx)
@@ -569,6 +573,8 @@ where
 /// load balance worker use.
 ///
 /// This will only be run on worker 0, but results will be broadcast.
+// Infallible: all .get().unwrap() calls use keys obtained from iterating the same map.
+#[allow(clippy::unwrap_used)]
 fn calc_primaries<P>(known: &BTreeMap<P, BTreeSet<WorkerIndex>>) -> BTreeMap<P, WorkerIndex>
 where
     P: Clone + Ord + Eq,
@@ -637,7 +643,7 @@ where
     S::Timestamp: TotalOrder,
     P: ExchangeData + Ord + Eq + Debug,
 {
-    fn assign_primaries(&self, name: String) -> Stream<S, (P, WorkerIndex)> {
+    fn assign_primaries(&self, name: String) -> Self {
         // Route all data to worker 0, this means that only worker 0
         // will assign primaries. We'll broadcast them at the end of
         // this operator.
@@ -678,9 +684,10 @@ where
                             let epoch = cap.time();
 
                             let new_primaries = calc_primaries(known);
-                            if new_primaries.is_empty() {
-                                panic!("No partitions found on any worker; did you forget to init them?");
-                            }
+                            assert!(
+                                !new_primaries.is_empty(),
+                                "No partitions found on any worker; did you forget to init them?"
+                            );
 
                             let mut handle = routing_output.activate();
                             let mut session = handle.session(cap);
@@ -860,6 +867,7 @@ where
     K: ExchangeData + Debug,
     V: ExchangeData,
 {
+    #[allow(clippy::iter_with_drain)]
     fn partd_write<P, W>(
         &self,
         name: String,
@@ -1090,6 +1098,7 @@ where
     S: Scope,
     S::Timestamp: TotalOrder,
 {
+    #[allow(clippy::iter_with_drain)]
     fn partd_load<P, L>(
         &mut self,
         name: String,
@@ -1118,7 +1127,7 @@ where
                     part_key.clone(),
                     vec![
                         worker_label.clone(),
-                        KeyValue::new("name", name.to_string()),
+                        KeyValue::new("name", name.clone()),
                         KeyValue::new("part_id", part_key.to_string()),
                     ],
                 )
@@ -1244,8 +1253,8 @@ where
     /// function which knows how to build a partition on this worker
     /// if it is assigned to be primary for that partition.
     ///
-    /// "Committing" could mean GCing the recovery store, but it could
-    /// also mean ACKing input messages or other things.
+    /// "Committing" could mean `GCing` the recovery store, but it could
+    /// also mean `ACKing` input messages or other things.
     ///
     /// A delay can be specified so the epoch reported as committed is
     /// actually a certain amount behind the frontier epoch of the
@@ -1273,7 +1282,7 @@ where
         local_parts: Vec<P>,
         mut builder: impl FnMut(&P) -> L + 'static,
         delay: S::Timestamp,
-    ) -> ClockStream<S>
+    ) -> Self
     where
         P: ExchangeData + Ord + Eq + Debug,
         L: Committer<S::Timestamp> + 'static,

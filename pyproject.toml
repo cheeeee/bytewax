@@ -60,15 +60,26 @@ markers = [
     "integration: integration tests requiring external services",
 ]
 
-[tool.mypy]
-# TODO: Turn this on to typecheck all tests.
-# check_untyped_defs = true
-# TODO: Also consider
-# disallow_untyped_calls = true
+[tool.coverage.run]
+source = ["bytewax"]
 
-# TODO: See if we can get
-# https://github.com/benbenbang/types-confluent-kafka fixed up to work
-# here.
+[tool.coverage.report]
+show_missing = true
+
+[tool.mypy]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+check_untyped_defs = true
+strict_equality = true
+no_implicit_reexport = true
+exclude = [
+    "^pytests/",
+    "^docs/",
+    "^examples/",
+    "^stubgen\\.py$",
+]
+
 [[tool.mypy.overrides]]
 module = "confluent_kafka.*"
 ignore_missing_imports = true
@@ -77,10 +88,37 @@ ignore_missing_imports = true
 module = "jsonpickle.*"
 ignore_missing_imports = true
 
+# Third-party modules used in examples/ and connectors/ that lack type stubs.
+[[tool.mypy.overrides]]
+module = [
+    "fastavro",
+    "fastavro.*",
+    "pandas",
+    "pandas.*",
+    "fake_web_events",
+    "fake_web_events.*",
+    "river",
+    "river.*",
+    "requests",
+    "requests.*",
+    "websockets",
+    "websockets.*",
+    "pyarrow",
+    "pyarrow.*",
+    "aiohttp_sse_client",
+    "aiohttp_sse_client.*",
+    "numpy",
+    "numpy.*",
+    "docutils",
+    "docutils.*",
+]
+ignore_missing_imports = true
+
 [tool.ruff.lint]
 select = [
     "A",
     "B",
+    "C901",
     "D",
     "DTZ",
     "E",
@@ -88,13 +126,29 @@ select = [
     "F",
     "I",
     "PL",
+    "RUF",
+    "PT",
+    "S",
+    "SIM",
+    "TC",
+    "UP",
     "W",
 ]
 ignore = [
     "D105",
     "E731",
     "PLR",
+    "PT013",
+    "RUF005",
+    "SIM102",
+    "SIM105",
+    "SIM108",
+    "SIM115",
+    "UP007",
 ]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -103,8 +157,15 @@ convention = "google"
 docstring-code-format = true
 
 [tool.ruff.lint.per-file-ignores]
-"examples/*.py" = ["D"]
-"pytests/test_flows/*.py" = ["D"]
-"test_*.py" = ["D"]
+# Docs tutorials: like examples, allow unused unpacking vars and pseudo-random
+"docs/tutorials/**/*.py" = ["D", "RUF059", "S311"]
+# Examples: no docstrings required, allow pseudo-random generators and asserts
+"examples/*.py" = ["D", "S101", "S311"]
+"examples/**/*.py" = ["D", "S101", "S311"]
+# Tests: no docstrings required, allow asserts, subprocess calls, and try-except-pass
+"pytests/test_flows/*.py" = ["D", "S101"]
+"test_*.py" = ["D", "S101"]
+"pytests/*.py" = ["S101", "S603", "S110"]
+"pytests/**/*.py" = ["S101", "S603", "S110"]
 # Because it has huge literals in it.
 "pytests/test_visualize.py" = ["E501"]
