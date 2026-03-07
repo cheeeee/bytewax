@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   rust-bench:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, Intel]
     container:
       image: buildpack-deps:22.04
     env:
@@ -56,9 +56,15 @@ jobs:
         shell: bash
         run: |
           echo "## Rust Criterion Benchmark Results" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat /tmp/bench-results.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Benchmark | ns/iter | +/- |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---:|---:|" >> $GITHUB_STEP_SUMMARY
+          grep "^test " /tmp/bench-results.txt | while read -r line; do
+            name=$(echo "$line" | sed 's/^test \(.*\) \.\.\. bench:.*/\1/')
+            nsiter=$(echo "$line" | sed 's/.*bench: *\([0-9,]*\) ns\/iter.*/\1/' | tr -d ',')
+            plusminus=$(echo "$line" | sed 's/.*+\/- \([0-9,]*\)).*/\1/' | tr -d ',')
+            echo "| $name | $nsiter | $plusminus |" >> $GITHUB_STEP_SUMMARY
+          done
       - name: Fix workspace permissions
         if: always()
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
@@ -68,7 +74,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, Intel]
     container:
       image: buildpack-deps:22.04
     env:
@@ -168,7 +174,7 @@ jobs:
           . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
           uv pip install -v --no-deps $WHEEL_FILE
-      - name: Run passthrough benchmarks
+      - name: Run benchmarks
         shell: bash
         run: |
           . venv/bin/activate
@@ -187,14 +193,16 @@ jobs:
           import json, sys
           with open('results-py${{ matrix.python-version }}.json') as f:
               data = json.load(f)
-          print('| Benchmark | Mean (ms) | StdDev (ms) | Rounds |')
-          print('|---|---|---|---|')
+          print('| Benchmark | Mean (ms) | StdDev (ms) | Throughput (items/s) | Rounds |')
+          print('|---|---:|---:|---:|---:|')
           for b in data.get('benchmarks', []):
               name = b['name']
-              mean_ms = b['stats']['mean'] * 1000
+              mean_s = b['stats']['mean']
+              mean_ms = mean_s * 1000
               stddev_ms = b['stats']['stddev'] * 1000
               rounds = b['stats']['rounds']
-              print(f'| {name} | {mean_ms:.2f} | {stddev_ms:.2f} | {rounds} |')
+              throughput = int(1 / mean_s) if mean_s > 0 else 0
+              print(f'| {name} | {mean_ms:.1f} | {stddev_ms:.1f} | {throughput:,} | {rounds} |')
           " >> $GITHUB_STEP_SUMMARY
           else
             echo "No results file found." >> $GITHUB_STEP_SUMMARY
@@ -213,7 +221,7 @@ jobs:
   perf-tests-pass:
     if: always()
     needs: [rust-bench, python-bench]
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, Intel]
     steps:
       - name: Fail if any dependency failed
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
