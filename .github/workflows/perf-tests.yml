@@ -1,20 +1,16 @@
 name: perf-tests
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
+  # Manual runs only.
+  # Automatic perf tests run as part of the CI workflow.
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
   rust-bench:
-    # Skip if CI failed (workflow_run trigger only)
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: [self-hosted, Linux, X64, Intel]
     container:
       image: buildpack-deps:22.04
@@ -26,8 +22,6 @@ jobs:
       - name: Create sudo wrapper
         run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/cache@v5
@@ -41,7 +35,6 @@ jobs:
           key: ${{ runner.os }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-perf-
-      # Need Python for PyO3 build (criterion benchmarks link against libpython)
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
@@ -74,8 +67,6 @@ jobs:
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
 
   wheels:
-    # Skip if CI failed (workflow_run trigger only)
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -90,25 +81,10 @@ jobs:
         run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
       - name: Create sudo wrapper
         run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
-
-      # --- Download from CI (workflow_run trigger) ---
-      - name: Download wheel from CI
-        if: github.event_name == 'workflow_run'
-        uses: dawidd6/action-download-artifact@v16
-        with:
-          workflow: CI.yml
-          run_id: ${{ github.event.workflow_run.id }}
-          name: wheels-linux-x86_64-${{ matrix.python-version }}
-          path: dist/
-
-      # --- Build locally (workflow_dispatch fallback) ---
       - uses: actions/checkout@v6
-        if: github.event_name == 'workflow_dispatch'
       - name: Mark workspace safe for git
-        if: github.event_name == 'workflow_dispatch'
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/cache@v5
-        if: github.event_name == 'workflow_dispatch'
         with:
           path: |
             ~/.cargo/bin/
@@ -120,28 +96,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-perf-build-
       - uses: astral-sh/setup-uv@v7
-        if: github.event_name == 'workflow_dispatch'
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
           cache-dependency-glob: "requirements/**"
       - run: uv python install
-        if: github.event_name == 'workflow_dispatch'
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
-        if: github.event_name == 'workflow_dispatch'
       - uses: dsherret/rust-toolchain-file@v1
-        if: github.event_name == 'workflow_dispatch'
       - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
-        if: github.event_name == 'workflow_dispatch'
       - name: Prep build venv
-        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           uv venv -p ${{ matrix.python-version }} venv/
           . venv/bin/activate
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
-        if: github.event_name == 'workflow_dispatch'
         uses: PyO3/maturin-action@v1
         env:
           CARGO_INCREMENTAL: "0"
@@ -151,8 +120,6 @@ jobs:
           target: x86_64
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-
-      # --- Upload wheel (both paths) ---
       - name: Upload wheel
         uses: actions/upload-artifact@v7
         with:
@@ -171,15 +138,12 @@ jobs:
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: [self-hosted, Linux, X64, Intel]
-    # No container — runs on bare metal for stable performance measurements
     steps:
       - name: Fix workspace permissions
         run: |
           chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
           rm -rf "${{ github.workspace }}/venv" "${{ github.workspace }}/.ruff_cache" 2>/dev/null || true
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: astral-sh/setup-uv@v7
@@ -250,9 +214,133 @@ jobs:
         if: always()
         run: chmod -R a+rwX "$GITHUB_WORKSPACE" 2>/dev/null || true
 
+  kafka-bench:
+    needs: [wheels]
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+    runs-on: [self-hosted, Linux, X64, Intel]
+    steps:
+      - name: Fix workspace permissions
+        run: |
+          chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+          rm -rf "${{ github.workspace }}/venv" "${{ github.workspace }}/.ruff_cache" 2>/dev/null || true
+      - uses: actions/checkout@v6
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "requirements/**"
+      - run: uv python install
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
+      - name: Download wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: perf-wheel-${{ matrix.python-version }}
+          path: dist/
+      - name: Prep benchmark venv
+        shell: bash
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Install wheel
+        shell: bash
+        run: |
+          . venv/bin/activate
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
+      - name: Start Kafka
+        shell: bash
+        run: |
+          docker rm -f kafka-bench 2>/dev/null || true
+          docker run -d --name kafka-bench \
+            -p 19092:19092 \
+            -e KAFKA_NODE_ID=1 \
+            -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
+            -e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:19092,CONTROLLER://0.0.0.0:9093 \
+            -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:19092 \
+            -e KAFKA_PROCESS_ROLES=broker,controller \
+            -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+            -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+            -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+            -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+            -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+            -e CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk \
+            -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=false \
+            confluentinc/cp-kafka:7.7.1
+      - name: Wait for Kafka readiness
+        shell: bash
+        run: |
+          echo "Waiting for Kafka to be ready on localhost:19092..."
+          for i in $(seq 1 60); do
+            if docker exec kafka-bench kafka-topics --bootstrap-server localhost:19092 --list 2>/dev/null; then
+              echo "Kafka is ready after ${i}s"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "::error::Kafka failed to start within 60 seconds"
+              docker logs kafka-bench
+              exit 1
+            fi
+            sleep 1
+          done
+      - name: Run Kafka benchmarks
+        shell: bash
+        env:
+          TEST_KAFKA_BROKER: localhost:19092
+        run: |
+          . venv/bin/activate
+          pytest pytests/test_kafka_bench.py \
+            --benchmark-only \
+            --benchmark-json=kafka-results-py${{ matrix.python-version }}.json \
+            -v
+      - name: Post benchmark results
+        if: always()
+        shell: bash
+        run: |
+          echo "## Kafka Benchmark - Python ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+          if [ -f kafka-results-py${{ matrix.python-version }}.json ]; then
+            . venv/bin/activate
+            python3 -c "
+          import json, sys
+          with open('kafka-results-py${{ matrix.python-version }}.json') as f:
+              data = json.load(f)
+          print('| Benchmark | Mean (ms) | StdDev (ms) | Throughput (items/s) | Rounds |')
+          print('|---|---:|---:|---:|---:|')
+          for b in data.get('benchmarks', []):
+              name = b['name']
+              mean_s = b['stats']['mean']
+              mean_ms = mean_s * 1000
+              stddev_ms = b['stats']['stddev'] * 1000
+              rounds = b['stats']['rounds']
+              throughput = int(1 / mean_s) if mean_s > 0 else 0
+              print(f'| {name} | {mean_ms:.1f} | {stddev_ms:.1f} | {throughput:,} | {rounds} |')
+          " >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No results file found." >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: kafka-perf-results-py${{ matrix.python-version }}
+          path: kafka-results-py${{ matrix.python-version }}.json
+          retention-days: 30
+      - name: Stop Kafka
+        if: always()
+        run: docker rm -f kafka-bench 2>/dev/null || true
+      - name: Fix workspace permissions
+        if: always()
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE" 2>/dev/null || true
+
   perf-tests-pass:
     if: always()
-    needs: [rust-bench, python-bench]
+    needs: [rust-bench, python-bench, kafka-bench]
     runs-on: [self-hosted, Linux, X64, Intel]
     steps:
       - name: Fail if any dependency failed

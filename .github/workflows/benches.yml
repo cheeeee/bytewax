@@ -1,23 +1,16 @@
 name: benchmarks
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
-  # `workflow_dispatch` allows CodSpeed to trigger backtest
-  # performance analysis in order to generate initial data.
-  # Also serves as fallback when CI wheels aren't available.
+  # CodSpeed backtesting and manual runs only.
+  # Automatic benchmarks run as part of the CI workflow.
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
   wheels:
-    # Skip if CI failed (workflow_run trigger only)
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -32,25 +25,10 @@ jobs:
         run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
       - name: Create sudo wrapper
         run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
-
-      # --- Download from CI (workflow_run trigger) ---
-      - name: Download wheel from CI
-        if: github.event_name == 'workflow_run'
-        uses: dawidd6/action-download-artifact@v16
-        with:
-          workflow: CI.yml
-          run_id: ${{ github.event.workflow_run.id }}
-          name: wheels-linux-x86_64-${{ matrix.python-version }}
-          path: dist/
-
-      # --- Build locally (workflow_dispatch fallback) ---
       - uses: actions/checkout@v6
-        if: github.event_name == 'workflow_dispatch'
       - name: Mark workspace safe for git
-        if: github.event_name == 'workflow_dispatch'
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/cache@v5
-        if: github.event_name == 'workflow_dispatch'
         with:
           path: |
             ~/.cargo/bin/
@@ -62,28 +40,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-bench-
       - uses: astral-sh/setup-uv@v7
-        if: github.event_name == 'workflow_dispatch'
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
           cache-dependency-glob: "requirements/**"
       - run: uv python install
-        if: github.event_name == 'workflow_dispatch'
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
-        if: github.event_name == 'workflow_dispatch'
       - uses: dsherret/rust-toolchain-file@v1
-        if: github.event_name == 'workflow_dispatch'
       - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
-        if: github.event_name == 'workflow_dispatch'
       - name: Prep build venv
-        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           uv venv -p ${{ matrix.python-version }} venv/
           . venv/bin/activate
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
-        if: github.event_name == 'workflow_dispatch'
         uses: PyO3/maturin-action@v1
         env:
           CARGO_INCREMENTAL: "0"
@@ -93,8 +64,6 @@ jobs:
           target: x86_64
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-
-      # --- Upload wheel (both paths) ---
       - name: Upload wheel
         uses: actions/upload-artifact@v7
         with:
@@ -113,15 +82,12 @@ jobs:
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: [self-hosted, Linux, X64, Intel]
-    # No container — runs on bare metal for direct perf_event_open access
     steps:
       - name: Fix workspace permissions
         run: |
           chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
           rm -rf "${{ github.workspace }}/venv" "${{ github.workspace }}/.ruff_cache" 2>/dev/null || true
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: astral-sh/setup-uv@v7
