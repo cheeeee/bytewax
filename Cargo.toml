@@ -32,8 +32,13 @@ tracing-opentelemetry = { version = "0.20" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 pyo3 = { version = "0.28", features = ["macros", "chrono", "py-clone"] }
 serde_test = { version = "1.0" }
+
+[[bench]]
+name = "pyo3_extensions"
+harness = false
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(Py_3_13)'] }

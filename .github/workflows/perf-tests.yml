@@ -1,0 +1,220 @@
+name: perf-tests
+
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  rust-bench:
+    runs-on: [self-hosted, Linux, X64]
+    container:
+      image: buildpack-deps:22.04
+    env:
+      UV_LINK_MODE: copy
+    steps:
+      - name: Fix workspace permissions
+        run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+      - name: Create sudo wrapper
+        run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
+      - uses: actions/checkout@v6
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-perf-
+      # Need Python for PyO3 build (criterion benchmarks link against libpython)
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv python install
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
+      - uses: dsherret/rust-toolchain-file@v1
+      - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
+      - name: Run Rust criterion benchmarks
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH="$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')"
+          cargo bench --bench pyo3_extensions --no-default-features -- --output-format bencher 2>&1 | tee /tmp/bench-results.txt
+      - name: Post benchmark results
+        if: always()
+        shell: bash
+        run: |
+          echo "## Rust Criterion Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat /tmp/bench-results.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+      - name: Fix workspace permissions
+        if: always()
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE"
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+    runs-on: [self-hosted, Linux, X64]
+    container:
+      image: buildpack-deps:22.04
+    env:
+      UV_LINK_MODE: copy
+    steps:
+      - name: Fix workspace permissions
+        run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+      - name: Create sudo wrapper
+        run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
+      - uses: actions/checkout@v6
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-perf-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-perf-build-
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "requirements/**"
+      - run: uv python install
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
+      - uses: dsherret/rust-toolchain-file@v1
+      - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
+      - name: Prep build venv
+        shell: bash
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: -C force-frame-pointers=yes
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
+        with:
+          target: x86_64
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
+      - name: Upload wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-wheel-${{ matrix.python-version }}
+          path: dist/*.whl
+          retention-days: 1
+      - name: Fix workspace permissions
+        if: always()
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE"
+
+  python-bench:
+    needs: [build]
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+    runs-on: [self-hosted, Linux, X64, Intel]
+    # No container — runs on bare metal for stable performance measurements
+    steps:
+      - name: Fix workspace permissions
+        run: |
+          chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+          rm -rf "${{ github.workspace }}/venv" "${{ github.workspace }}/.ruff_cache" 2>/dev/null || true
+      - uses: actions/checkout@v6
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "requirements/**"
+      - run: uv python install
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
+      - name: Download wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: perf-wheel-${{ matrix.python-version }}
+          path: dist/
+      - name: Prep benchmark venv
+        shell: bash
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Install wheel
+        shell: bash
+        run: |
+          . venv/bin/activate
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
+      - name: Run passthrough benchmarks
+        shell: bash
+        run: |
+          . venv/bin/activate
+          pytest pytests/test_passthrough_bench.py \
+            --benchmark-only \
+            --benchmark-json=results-py${{ matrix.python-version }}.json \
+            -v
+      - name: Post benchmark results
+        if: always()
+        shell: bash
+        run: |
+          echo "## Python ${{ matrix.python-version }} Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f results-py${{ matrix.python-version }}.json ]; then
+            . venv/bin/activate
+            python3 -c "
+          import json, sys
+          with open('results-py${{ matrix.python-version }}.json') as f:
+              data = json.load(f)
+          print('| Benchmark | Mean (ms) | StdDev (ms) | Rounds |')
+          print('|---|---|---|---|')
+          for b in data.get('benchmarks', []):
+              name = b['name']
+              mean_ms = b['stats']['mean'] * 1000
+              stddev_ms = b['stats']['stddev'] * 1000
+              rounds = b['stats']['rounds']
+              print(f'| {name} | {mean_ms:.2f} | {stddev_ms:.2f} | {rounds} |')
+          " >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No results file found." >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-results-py${{ matrix.python-version }}
+          path: results-py${{ matrix.python-version }}.json
+          retention-days: 30
+      - name: Fix workspace permissions
+        if: always()
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE" 2>/dev/null || true
+
+  perf-tests-pass:
+    if: always()
+    needs: [rust-bench, python-bench]
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - name: Fail if any dependency failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
