@@ -16,9 +16,7 @@ def test_flat_map_value():
     op.output("out", s, TestingSink(out))
 
     run_main(flow)
-    assert sorted(out) == sorted(
-        [("key1", "hello"), ("key1", "world"), ("key2", "hi")]
-    )
+    assert sorted(out) == sorted([("key1", "hello"), ("key1", "world"), ("key2", "hi")])
 
 
 def test_flat_map_value_empty():
