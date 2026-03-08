@@ -1247,9 +1247,14 @@ def count_final(
     ```{testcode}
     :hide:
 
+    import sys, io
     from bytewax.testing import run_main
 
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
@@ -2676,8 +2681,14 @@ def max_final(
 
     ```{testcode}
     :hide:
+    import sys, io
     from bytewax.testing import run_main
+
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
@@ -2744,8 +2755,14 @@ def min_final(
 
     ```{testcode}
     :hide:
+    import sys, io
     from bytewax.testing import run_main
+
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
@@ -2837,8 +2854,14 @@ def reduce_final(
 
     ```{testcode}
     :hide:
+    import sys, io
     from bytewax.testing import run_main
+
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
