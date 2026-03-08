@@ -542,7 +542,7 @@ impl StatefulBatchLogic {
     }
 
     fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<Py<PyAny>>, IsComplete)> {
-        let res = self.0.bind(py).call_method0("on_eof")?;
+        let res = self.0.bind(py).call_method0(intern!(py, "on_eof"))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 

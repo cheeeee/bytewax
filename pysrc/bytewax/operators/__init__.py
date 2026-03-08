@@ -1711,22 +1711,26 @@ def filter(  # noqa: A001
         predicate returns `True`.
 
     """
+    checked = False
 
-    def shim_mapper(x: X) -> Iterable[X]:
-        keep = predicate(x)
-        if not isinstance(keep, bool):
-            msg = (
-                f"return value of `predicate` {f_repr(predicate)} "
-                f"in step {step_id!r} must be a `bool`; "
-                f"got a {type(keep)!r} instead"
-            )
-            raise TypeError(msg)
-        if keep:
-            return (x,)
+    def shim_mapper(xs: List[X]) -> List[X]:
+        nonlocal checked
+        if not checked and xs:
+            keep = predicate(xs[0])
+            if not isinstance(keep, bool):
+                msg = (
+                    f"return value of `predicate` {f_repr(predicate)} "
+                    f"in step {step_id!r} must be a `bool`; "
+                    f"got a {type(keep)!r} instead"
+                )
+                raise TypeError(msg)
+            checked = True
+            result = [xs[0]] if keep else []
+            result.extend(x for x in xs[1:] if predicate(x))
+            return result
+        return [x for x in xs if predicate(x)]
 
-        return _EMPTY
-
-    return flat_map("flat_map", up, shim_mapper)
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @operator
@@ -1775,22 +1779,27 @@ def filter_value(
         the predicate returns `True`.
 
     """
+    checked = False
 
-    def shim_mapper(v: V) -> Iterable[V]:
-        keep = predicate(v)
-        if not isinstance(keep, bool):
-            msg = (
-                f"return value of `predicate` {f_repr(predicate)} "
-                f"in step {step_id!r} must be a `bool`; "
-                f"got a {type(keep)!r} instead"
-            )
-            raise TypeError(msg)
-        if keep:
-            return (v,)
+    def shim_mapper(xs: List[Tuple[str, V]]) -> List[Tuple[str, V]]:
+        nonlocal checked
+        if not checked and xs:
+            _k, v = xs[0]
+            keep = predicate(v)
+            if not isinstance(keep, bool):
+                msg = (
+                    f"return value of `predicate` {f_repr(predicate)} "
+                    f"in step {step_id!r} must be a `bool`; "
+                    f"got a {type(keep)!r} instead"
+                )
+                raise TypeError(msg)
+            checked = True
+            result = [xs[0]] if keep else []
+            result.extend((k, v) for k, v in xs[1:] if predicate(v))
+            return result
+        return [(k, v) for k, v in xs if predicate(v)]
 
-        return _EMPTY
-
-    return flat_map_value("filter", up, shim_mapper)
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @operator
@@ -2436,21 +2445,22 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[
     """
     checked = False
 
-    def shim_mapper(x: X) -> Tuple[str, X]:
+    def shim_mapper(xs: List[X]) -> List[Tuple[str, X]]:
         nonlocal checked
-        k = key(x)
-        if not checked:
-            if not isinstance(k, str):
+        if not checked and xs:
+            k0 = key(xs[0])
+            if not isinstance(k0, str):
                 msg = (
                     f"return value of `key` {f_repr(key)} "
                     f"in step {step_id!r} must be a `str`; "
-                    f"got a {type(k)!r} instead"
+                    f"got a {type(k0)!r} instead"
                 )
                 raise TypeError(msg)
             checked = True
-        return (k, x)
+            return [(k0, xs[0])] + [(key(x), x) for x in xs[1:]]
+        return [(key(x), x) for x in xs]
 
-    return map("map", up, shim_mapper)
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @operator
@@ -2615,12 +2625,10 @@ def map_value(
 
     """
 
-    def shim_mapper(k_v: Tuple[str, V]) -> Tuple[str, W]:
-        k, v = k_v
-        w = mapper(v)
-        return (k, w)
+    def shim_mapper(xs: List[Tuple[str, V]]) -> List[Tuple[str, W]]:
+        return [(k, mapper(v)) for k, v in xs]
 
-    return map("map", up, shim_mapper)
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @overload
