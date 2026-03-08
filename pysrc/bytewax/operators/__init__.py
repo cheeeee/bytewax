@@ -2434,16 +2434,20 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[
         values.
 
     """
+    checked = False
 
     def shim_mapper(x: X) -> Tuple[str, X]:
+        nonlocal checked
         k = key(x)
-        if not isinstance(k, str):
-            msg = (
-                f"return value of `key` {f_repr(key)} "
-                f"in step {step_id!r} must be a `str`; "
-                f"got a {type(k)!r} instead"
-            )
-            raise TypeError(msg)
+        if not checked:
+            if not isinstance(k, str):
+                msg = (
+                    f"return value of `key` {f_repr(key)} "
+                    f"in step {step_id!r} must be a `str`; "
+                    f"got a {type(k)!r} instead"
+                )
+                raise TypeError(msg)
+            checked = True
         return (k, x)
 
     return map("map", up, shim_mapper)
@@ -2561,8 +2565,8 @@ def map(  # noqa: A001
 
     """
 
-    def shim_mapper(xs: List[X]) -> Iterable[Y]:
-        return (mapper(x) for x in xs)
+    def shim_mapper(xs: List[X]) -> List[Y]:
+        return [mapper(x) for x in xs]
 
     return flat_map_batch("flat_map_batch", up, shim_mapper)
 
@@ -2985,6 +2989,57 @@ def stateful_flat_map_batch(
     return stateful("stateful", up, shim_builder)
 
 
+@dataclass
+class _StatefulMapBatchLogic(StatefulBatchLogic[V, W, Optional[S]]):
+    """Collapsed stateful_map logic.
+
+    Bypasses the stateful_flat_map/stateful layers for better
+    per-item performance by processing the entire batch in a single
+    on_batch call with no intermediate function calls per item.
+    """
+
+    step_id: str
+    mapper: Callable[[Optional[S], V], Tuple[Optional[S], W]]
+    state: Optional[S]
+
+    @override
+    def on_batch(self, values: List[V]) -> Tuple[List[W], bool]:
+        ws: List[W] = []
+        mapper = self.mapper
+        state = self.state
+        for v in values:
+            res = mapper(state, v)
+            try:
+                state, w = res
+            except TypeError as ex:
+                msg = (
+                    f"return value of `mapper` {f_repr(self.mapper)} "
+                    f"in step {self.step_id!r} "
+                    "must be a 2-tuple of `(updated_state, emit_value)`; "
+                    f"got a {type(res)!r} instead"
+                )
+                raise TypeError(msg) from ex
+            ws.append(w)
+        self.state = state
+        return (ws, state is None)
+
+    @override
+    def on_notify(self) -> Tuple[Iterable[W], bool]:
+        return (_EMPTY, self.RETAIN)
+
+    @override
+    def on_eof(self) -> Tuple[Iterable[W], bool]:
+        return (_EMPTY, self.RETAIN)
+
+    @override
+    def notify_at(self) -> Optional[datetime]:
+        return None
+
+    @override
+    def snapshot(self) -> Optional[S]:
+        return copy.deepcopy(self.state)
+
+
 @operator
 def stateful_map(
     step_id: str,
@@ -3056,19 +3111,9 @@ def stateful_map(
 
     """
 
-    def shim_mapper(state: Optional[S], v: V) -> Tuple[Optional[S], Iterable[W]]:
-        res = mapper(state, v)
-        try:
-            s, w = res
-        except TypeError as ex:
-            msg = (
-                f"return value of `mapper` {f_repr(mapper)} "
-                f"in step {step_id!r} "
-                "must be a 2-tuple of `(updated_state, emit_value)`; "
-                f"got a {type(res)!r} instead"
-            )
-            raise TypeError(msg) from ex
+    def shim_builder(
+        resume_state: Optional[S],
+    ) -> _StatefulMapBatchLogic[V, W, S]:
+        return _StatefulMapBatchLogic(step_id, mapper, resume_state)
 
-        return (s, (w,))
-
-    return stateful_flat_map("stateful_flat_map", up, shim_mapper)
+    return stateful_batch("stateful_batch", up, shim_builder)

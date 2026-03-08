@@ -108,15 +108,24 @@ fn next_batch(
     in_batch: Vec<Py<PyAny>>,
 ) -> PyResult<()> {
     let res = mapper.call1((in_batch,)).reraise("error calling mapper")?;
-    let iter = res.try_iter().reraise_with(|| {
-        format!(
-            "mapper must return an iterable; got a `{}` instead",
-            unwrap_any!(res.get_type().qualname()),
-        )
-    })?;
-    for res in iter {
-        let out_item = res.reraise("error while iterating through batch")?;
-        outbuf.push(out_item.into());
+    // Fast path: if the mapper returned a list, iterate via direct
+    // C-level array access instead of the Python iterator protocol.
+    if let Ok(list) = res.cast::<pyo3::types::PyList>() {
+        outbuf.reserve(list.len());
+        for item in list.iter() {
+            outbuf.push(TdPyAny::from(item.unbind()));
+        }
+    } else {
+        let iter = res.try_iter().reraise_with(|| {
+            format!(
+                "mapper must return an iterable; got a `{}` instead",
+                unwrap_any!(res.get_type().qualname()),
+            )
+        })?;
+        for res in iter {
+            let out_item = res.reraise("error while iterating through batch")?;
+            outbuf.push(out_item.into());
+        }
     }
 
     Ok(())
