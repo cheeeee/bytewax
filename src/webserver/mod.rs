@@ -1,6 +1,6 @@
 use axum::{
     Router,
-    extract::Extension,
+    extract::State as AxumState,
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
@@ -9,6 +9,7 @@ use axum::{
 use prometheus::{TextEncoder, default_registry};
 use pyo3::{exceptions::PyRuntimeError, exceptions::PyValueError, prelude::*};
 use std::{net::SocketAddr, sync::Arc};
+use tokio::net::TcpListener;
 
 use crate::errors::PythonException;
 
@@ -22,7 +23,7 @@ pub(crate) async fn run_webserver(dataflow_json: String) -> PyResult<()> {
     let app = Router::new()
         .route("/dataflow", get(get_dataflow))
         .route("/metrics", get(get_metrics))
-        .layer(Extension(shared_state));
+        .with_state(shared_state);
 
     let port: u16 = std::env::var("BYTEWAX_DATAFLOW_API_PORT")
         .ok()
@@ -36,8 +37,12 @@ pub(crate) async fn run_webserver(dataflow_json: String) -> PyResult<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!("Starting Dataflow API server on {addr:?}");
 
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    let listener = TcpListener::bind(addr)
+        .await
+        .map_err(|err| err.to_string())
+        .raise_with::<PyRuntimeError>(|| format!("Unable to bind webserver to port {port}"))?;
+
+    axum::serve(listener, app)
         .await
         .map_err(|err| err.to_string())
         .raise_with::<PyRuntimeError>(|| format!("Unable to create local webserver at port {port}"))
@@ -45,7 +50,7 @@ pub(crate) async fn run_webserver(dataflow_json: String) -> PyResult<()> {
 
 // TODO: Convert to proper error handling with `?` operator.
 #[allow(clippy::unwrap_used)]
-async fn get_dataflow(Extension(state): Extension<Arc<State>>) -> impl IntoResponse {
+async fn get_dataflow(AxumState(state): AxumState<Arc<State>>) -> impl IntoResponse {
     // We are building a custom response here, as the returned value
     // from our helper function is JSON formatted string.
     Response::builder()
