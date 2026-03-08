@@ -28,7 +28,7 @@ def test_count_window():
     op.output("out", wo.down, TestingSink(out))
 
     run_main(flow)
-    assert out == [
+    assert sorted(out) == [
         ("a", (0, 2)),
         ("a", (1, 2)),
         ("b", (0, 1)),

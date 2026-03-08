@@ -13,4 +13,4 @@ def test_count_final():
     op.output("out", s, TestingSink(out))
 
     run_main(flow)
-    assert out == [("a", 3), ("b", 2), ("c", 1)]
+    assert sorted(out) == [("a", 3), ("b", 2), ("c", 1)]

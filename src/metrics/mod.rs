@@ -1,3 +1,6 @@
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+
 use opentelemetry::{
     global,
     sdk::metrics::{Aggregation, Instrument, MeterProvider, Stream},
@@ -5,13 +8,23 @@ use opentelemetry::{
 use prometheus::default_registry;
 use pyo3::{PyErr, PyResult, exceptions::PyRuntimeError};
 
+/// Whether metrics collection is active. Set to `true` by
+/// [`initialize_metrics`] when the webserver is enabled. When `false`,
+/// [`with_timer!`] skips timing entirely to avoid `Instant::now()`
+/// overhead in the hot path.
+pub(crate) static METRICS_ENABLED: AtomicBool = AtomicBool::new(false);
+
 #[macro_export]
 macro_rules! with_timer {
     ($histogram: expr, $labels: expr, $body: expr) => {{
-        let now = std::time::Instant::now();
-        let res = $body;
-        $histogram.record(now.elapsed().as_secs_f64(), &$labels);
-        res
+        if $crate::metrics::METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            let now = std::time::Instant::now();
+            let res = $body;
+            $histogram.record(now.elapsed().as_secs_f64(), &$labels);
+            res
+        } else {
+            $body
+        }
     }};
 }
 
@@ -45,5 +58,8 @@ pub(crate) fn initialize_metrics() -> PyResult<()> {
         )
         .build();
     global::set_meter_provider(provider);
+
+    METRICS_ENABLED.store(true, Ordering::Relaxed);
+
     Ok(())
 }

@@ -1,7 +1,8 @@
 //! Code implementing Bytewax's core operators.
 
-use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::BuildHasherDefault;
 
@@ -644,12 +645,12 @@ where
             // each key representing the state at the frontier epoch;
             // we only modify state carefully in epoch order once we
             // know we won't be getting any input on closed epochs.
-            let mut logics: BTreeMap<StateKey, StatefulBatchLogic> = BTreeMap::new();
+            let mut logics: HashMap<StateKey, StatefulBatchLogic> = HashMap::new();
             // Contains the last known return value for
             // `logic.notify_at` for each key (if any). We don't
             // snapshot this because the logic itself should contain
             // any notify times within.
-            let mut sched_cache: BTreeMap<StateKey, DateTime<Utc>> = BTreeMap::new();
+            let mut sched_cache: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
 
             // Here we have "buffers" that store items across
             // activations.
@@ -666,7 +667,7 @@ where
             // only snapshot state of keys that could have resulted in
             // state modifications. This is drained after each epoch
             // is processed.
-            let mut awoken_keys_this_epoch_buffer: BTreeSet<StateKey> = BTreeSet::new();
+            let mut awoken_keys_this_epoch_buffer: HashSet<StateKey> = HashSet::new();
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
@@ -752,14 +753,14 @@ where
                             // Keep track of all keys that had logic
                             // methods called so we know which to call
                             // `notify_at` on.
-                            let mut awoken_keys_this_activation: BTreeSet<StateKey> = BTreeSet::new();
+                            let mut awoken_keys_this_activation: HashSet<StateKey> = HashSet::new();
 
                             // First, call `on_batch` for all the input
                             // items.
                             if let Some(items) = inbuf.remove(&epoch) {
                                 item_inp_count.add(items.len() as u64, &labels);
 
-                                let mut keyed_items: BTreeMap<StateKey, Vec<Py<PyAny>>> = BTreeMap::new();
+                                let mut keyed_items: HashMap<StateKey, Vec<Py<PyAny>>> = HashMap::new();
                                 for (worker, (key, value)) in items {
                                     assert!(worker == this_worker);
                                     keyed_items.entry(key).or_default().push(<Py<PyAny>>::from(value));
