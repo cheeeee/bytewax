@@ -454,6 +454,7 @@ jobs:
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "RUSTUP_TOOLCHAIN=$RUST_VERSION" >> $GITHUB_ENV
       - name: Run Rust criterion benchmarks
         shell: bash
         run: |
