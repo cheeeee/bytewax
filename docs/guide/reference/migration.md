@@ -588,7 +588,7 @@ msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer
 
 After:
 
-```{testcode}
+```python
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.kafka import operators as kop
 

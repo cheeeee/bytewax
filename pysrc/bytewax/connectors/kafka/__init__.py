@@ -11,7 +11,7 @@ docstring for its use.
 You can use {py:obj}`~bytewax.connectors.kafka.KafkaSource` and
 {py:obj}`~bytewax.connectors.kafka.KafkaSink` directly:
 
-```{testcode}
+```python
 from bytewax.connectors.kafka import KafkaSource, KafkaSink, KafkaSinkMessage
 from bytewax import operators as op
 from bytewax.dataflow import Dataflow
@@ -25,7 +25,7 @@ op.output("kafka-out", processed, KafkaSink(brokers, "out-topic"))
 
 Or the custom operators:
 
-```{testcode}
+```python
 from bytewax.connectors.kafka import operators as kop, KafkaSinkMessage
 from bytewax import operators as op
 from bytewax.dataflow import Dataflow

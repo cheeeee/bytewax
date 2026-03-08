@@ -15,7 +15,7 @@ Bytewax provides two basic ways to connect to Kafka.
 You can use {py:obj}`~bytewax.connectors.kafka.KafkaSource` and
 {py:obj}`~bytewax.connectors.kafka.KafkaSink` directly:
 
-```{testcode}
+```python
 from bytewax.connectors.kafka import KafkaSource, KafkaSink, KafkaSinkMessage
 from bytewax import operators as op
 from bytewax.dataflow import Dataflow
@@ -30,7 +30,7 @@ op.output("kafka-out", processed, KafkaSink(brokers, "out-topic"))
 Or use the {py:obj}`bytewax.connectors.kafka.operators.input`
 operator:
 
-```{testcode}
+```python
 from bytewax.connectors.kafka import operators as kop, KafkaSinkMessage
 from bytewax import operators as op
 from bytewax.dataflow import Dataflow
@@ -64,7 +64,7 @@ were successfully processed. The `.errs` field is a stream of
 error was encountered. Items that encountered an error have their
 `.err` field set with more details about the error.
 
-```{testcode}
+```python
 flow = Dataflow("example")
 kinp = kop.input("kafka-in-2", flow, brokers=brokers, topics=["in-topic"])
 # Print out errors that are encountered, and then raise an exception
@@ -106,7 +106,7 @@ Messages that are published to a
 You can create a {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage`
 with the data you want:
 
-```{testcode}
+```python
 msg = KafkaSinkMessage(key=None, value="some_value")
 ```
 And you can optionally set `topic`, `headers`, `partition` and `timestamp`.
@@ -127,14 +127,14 @@ message to be written to that topic.
 Additionally, the {py:obj}`~bytewax.connectors.kafka.KafkaSink` class
 can be constructed without specifying a topic:
 
-```{testcode}
+```python
 op.output("kafka-dynamic-out", processed, KafkaSink(brokers, topic=None))
 ```
 
 Writes to this output will be written to the topic that is specified
 when creating a {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage`.
 
-```{testcode}
+```python
 KafkaSinkMessage(msg.key, msg.value, topic="out-topic-1")
 ```
 
@@ -165,7 +165,7 @@ If you are not using recovery and would prefer to track offsets on the
 broker side, you can pass additional options to the Kafka input
 sources to create a consumer group:
 
-```{testcode}
+```python
 from confluent_kafka import OFFSET_STORED
 
 add_config = {"group.id": "consumer_group", "enable.auto.commit": "true"}
@@ -217,7 +217,7 @@ custom operators to help with that. If you are working with
 confluent's python libraries, you can use confluent's schema registry
 client and (de)serializers directly:
 
-```{testcode}
+```python
 from bytewax.dataflow import Dataflow
 from bytewax.connectors.kafka import operators as kop
 from confluent_kafka.schema_registry import SchemaRegistryClient
@@ -288,7 +288,7 @@ As a trivial example, we can implement a class that uses the
 [orjson](https://github.com/ijl/orjson) library to deserialize a JSON
 payload from bytes.
 
-```{testcode}
+```python
 import orjson
 
 from typing import Optional
