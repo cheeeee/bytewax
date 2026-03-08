@@ -115,7 +115,7 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
         if len(batch) <= 0:
             raise StopIteration()
         self._start_idx += len(batch)
-        return batch
+        return batch  # type: ignore[return-value]
 
     def _next_batch_sentinel(self) -> List[X]:
         batch = []

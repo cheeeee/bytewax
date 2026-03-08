@@ -280,6 +280,7 @@ jobs:
           PIP_BREAK_SYSTEM_PACKAGES: "1"
         with:
           target: ${{ matrix.target }}
+          manylinux: ${{ matrix.target == 'x86_64' && 'auto' || '2_28' }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
       - name: Run Python tests
