@@ -9,11 +9,17 @@ standard output. You can control the log level by passing the
 see all the messages Bytewax emits, set the level to `TRACE`.
 
 The `TRACE` level includes everything that would be sent to an
-opentelemetry compatible backend, like
-[Jaeger](https://www.jaegertracing.io/), or the [Opentelemetry
-Collector](https://opentelemetry.io/docs/collector/). It is really
-verbose, and your stdoutput will be flooded with logs, so use it
-carefully.
+OpenTelemetry compatible backend, like
+[Jaeger](https://www.jaegertracing.io/) (via OTLP), or the
+[OpenTelemetry Collector](https://opentelemetry.io/docs/collector/).
+It is really verbose, and your stdout will be flooded with logs, so
+use it carefully.
+
+:::{note}
+`JaegerConfig` is deprecated. Use `OtlpTracingConfig` instead.
+Jaeger v1.35+ natively supports the OTLP protocol on port `4317`,
+which is what `OtlpTracingConfig` uses.
+:::
 
 ## Try it
 

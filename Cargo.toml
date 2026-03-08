@@ -16,11 +16,10 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 fastrand = { version = "2" }
 mimalloc = { version = "0.1", default-features = false, optional = true }
 num = { version = "0.4.0" }
-opentelemetry = { version = "0.20", features = ["rt-tokio", "metrics"] }
-opentelemetry_sdk = { version = "0.20", features = ["metrics"] }
-opentelemetry-jaeger = { version = "0.19", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.13", features = ["trace", "reqwest-client", "grpc-tonic"] }
-opentelemetry-prometheus = "0.13.0"
+opentelemetry = { version = "0.28", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.28", features = ["metrics", "rt-tokio", "spec_unstable_metrics_views"] }
+opentelemetry-otlp = { version = "0.28", features = ["trace", "grpc-tonic"] }
+opentelemetry-prometheus = { version = "0.28" }
 prometheus = { version = "0.13.3" }
 pyo3 = { version = "0.28", features = [ "macros", "chrono", "py-clone"] }
 rusqlite = { version = "0.32", features = ["bundled", "series"] }
@@ -31,7 +30,7 @@ serde_json = { version = "1.0" }
 timely = { git = "https://github.com/TimelyDataflow/timely-dataflow.git", rev = "432ef57", features = ["bincode"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "net"] }
 tracing = { version = "0.1" }
-tracing-opentelemetry = { version = "0.20" }
+tracing-opentelemetry = { version = "0.29" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]

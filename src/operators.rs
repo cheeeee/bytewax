@@ -162,15 +162,15 @@ where
         let item_inp_count = meter
             .u64_counter("item_inp_count")
             .with_description("number of items this step has ingested")
-            .init();
+            .build();
         let item_out_count = meter
             .u64_counter("item_out_count")
             .with_description("number of items this step has emitted")
-            .init();
+            .build();
         let mapper_histogram = meter
             .f64_histogram("flat_map_batch_duration_seconds")
             .with_description("`flat_map_batch` `mapper` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
             KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
@@ -612,31 +612,31 @@ where
         let item_inp_count = meter
             .u64_counter("item_inp_count")
             .with_description("number of items this step has ingested")
-            .init();
+            .build();
         let item_out_count = meter
             .u64_counter("item_out_count")
             .with_description("number of items this step has emitted")
-            .init();
+            .build();
         let on_batch_histogram = meter
             .f64_histogram("stateful_batch_on_batch_duration_seconds")
             .with_description("`StatefulBatchLogic.on_batch` duration in seconds")
-            .init();
+            .build();
         let on_notify_histogram = meter
             .f64_histogram("stateful_batch_on_notify_duration_seconds")
             .with_description("`StatefulBatchLogic.on_notify` duration in seconds")
-            .init();
+            .build();
         let on_eof_histogram = meter
             .f64_histogram("stateful_batch_on_eof_duration_seconds")
             .with_description("`StatefulBatchLogic.on_eof` duration in seconds")
-            .init();
+            .build();
         let notify_at_histogram = meter
             .f64_histogram("stateful_batch_notify_at_duration_seconds")
             .with_description("`StatefulBatchLogic.notify_at` duration in seconds")
-            .init();
+            .build();
         let snapshot_histogram = meter
             .f64_histogram("snapshot_duration_seconds")
             .with_description("`snapshot` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
             KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),

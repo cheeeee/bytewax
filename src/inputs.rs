@@ -286,19 +286,19 @@ impl FixedPartitionedSource {
         let item_out_count = meter
             .u64_counter("item_out_count")
             .with_description("number of items this step has emitted")
-            .init();
+            .build();
         let next_batch_histogram = meter
             .f64_histogram("inp_part_next_batch_duration_seconds")
             .with_description("`next_batch` duration in seconds")
-            .init();
+            .build();
         let batch_size_histogram = meter
             .u64_histogram("inp_part_next_batch_size")
             .with_description("`next_batch` batch size")
-            .init();
+            .build();
         let snapshot_histogram = meter
             .f64_histogram("snapshot_duration_seconds")
             .with_description("`snapshot` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
             KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
@@ -772,11 +772,11 @@ impl DynamicSource {
         let item_out_count = meter
             .u64_counter("item_out_count")
             .with_description("number of items this step has emitted")
-            .init();
+            .build();
         let next_batch_histogram = meter
             .f64_histogram("inp_part_next_batch_duration_seconds")
             .with_description("`next_batch` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
             KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", worker_index.0.to_string()),
