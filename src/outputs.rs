@@ -271,15 +271,15 @@ where
         let item_inp_count = meter
             .u64_counter("item_inp_count")
             .with_description("number of items this step has ingested")
-            .init();
+            .build();
         let write_batch_histogram = meter
             .f64_histogram("out_part_write_batch_duration_seconds")
             .with_description("`write_batch` duration in seconds")
-            .init();
+            .build();
         let snapshot_histogram = meter
             .f64_histogram("snapshot_duration_seconds")
             .with_description("`snapshot` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
             KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
@@ -563,11 +563,11 @@ where
         let item_inp_count = meter
             .u64_counter("item_inp_count")
             .with_description("number of items this step has ingested")
-            .init();
+            .build();
         let write_batch_histogram = meter
             .f64_histogram("out_part_write_batch_duration_seconds")
             .with_description("`write_batch` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
             KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", worker_index.0.to_string()),

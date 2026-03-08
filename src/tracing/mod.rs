@@ -7,7 +7,8 @@
 //! Each tracing backend has to implement the `TracerBuilder` trait, which
 //! requires a `build` function that is used to build the telemetry layer.
 
-use opentelemetry::sdk::trace::Tracer;
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
@@ -46,9 +47,9 @@ impl TracingConfig {
 }
 
 /// Trait that all the tracing config should implement.
-/// This function should just return the proper `Tracer` for the backend.
+/// This function should return a configured `SdkTracerProvider` for the backend.
 pub(crate) trait TracerBuilder {
-    fn build(&self) -> PyResult<Tracer>;
+    fn build(&self) -> PyResult<SdkTracerProvider>;
 }
 
 impl PyConfigClass<Box<dyn TracerBuilder + Send>> for Py<TracingConfig> {
@@ -114,9 +115,10 @@ async fn setup(
     // If the conf was not none, setup the global subscriber with both log and
     // telemetry layer, otherwise just setup logging.
     if let Some(tracer) = tracer {
-        let tracer = tracer.build().reraise("error building tracer")?;
+        let provider = tracer.build().reraise("error building tracer")?;
+        let otel_tracer = provider.tracer("bytewax");
         let telemetry = tracing_opentelemetry::layer()
-            .with_tracer(tracer)
+            .with_tracer(otel_tracer)
             // Send all traces from bytewax
             .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE));
         tracing::subscriber::set_global_default(Registry::default().with(logs).with(telemetry))

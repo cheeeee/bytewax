@@ -882,7 +882,7 @@ where
         let histogram = meter
             .f64_histogram("partd_write_duration_seconds")
             .with_description("partitioned state write duration in seconds")
-            .init();
+            .build();
         let worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
         // Create a map of metric labels to use for each part_id
         let part_label_map: HashMap<P, Vec<KeyValue>> = local_parts
@@ -1114,7 +1114,7 @@ where
         let histogram = meter
             .f64_histogram("partd_load_builder_duration_seconds")
             .with_description("partitioned state load duration in seconds")
-            .init();
+            .build();
         let worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
         // Create a map of metric labels to use for each part_id
         let part_label_map: HashMap<P, Vec<KeyValue>> = local_parts

@@ -1,10 +1,8 @@
-use opentelemetry::KeyValue;
-use opentelemetry::runtime::Tokio;
-use opentelemetry::sdk::Resource;
-use opentelemetry::sdk::trace::Sampler;
-use opentelemetry::sdk::trace::Tracer;
-use opentelemetry::sdk::trace::config;
+use opentelemetry_otlp::SpanExporter;
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::trace::Sampler;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
@@ -68,28 +66,31 @@ impl OtlpTracingConfig {
 
 impl TracerBuilder for OtlpTracingConfig {
     #[allow(clippy::significant_drop_tightening)]
-    fn build(&self) -> PyResult<Tracer> {
-        // Instantiate the builder
-        let mut exporter = opentelemetry_otlp::new_exporter().tonic();
+    fn build(&self) -> PyResult<SdkTracerProvider> {
+        // Build the OTLP span exporter
+        let mut exporter_builder = SpanExporter::builder().with_tonic();
 
         // Change the url if required
         if let Some(endpoint) = self.url.as_ref() {
-            exporter = exporter.with_endpoint(endpoint);
+            exporter_builder = exporter_builder.with_endpoint(endpoint);
         }
 
-        // Create the tracer
-        opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_exporter(exporter)
-            .with_trace_config(
-                config()
-                    .with_sampler(Sampler::TraceIdRatioBased(self.sampling_ratio))
-                    .with_resource(Resource::new(vec![KeyValue::new(
-                        "service.name",
-                        self.service_name.clone(),
-                    )])),
-            )
-            .install_batch(Tokio)
-            .raise::<PyRuntimeError>("error installing tracer")
+        let exporter = exporter_builder
+            .build()
+            .raise::<PyRuntimeError>("error building OTLP exporter")?;
+
+        // Build the resource
+        let resource = Resource::builder()
+            .with_service_name(self.service_name.clone())
+            .build();
+
+        // Build the tracer provider
+        let provider = SdkTracerProvider::builder()
+            .with_batch_exporter(exporter)
+            .with_sampler(Sampler::TraceIdRatioBased(self.sampling_ratio))
+            .with_resource(resource)
+            .build();
+
+        Ok(provider)
     }
 }
