@@ -62,9 +62,14 @@ $ python -m bytewax.run wordcount
 ```{testcode}
 :hide:
 
+import sys, io
 from bytewax.testing import run_main
 
+_old_stdout, sys.stdout = sys.stdout, io.StringIO()
 run_main(flow)
+_captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+for _line in sorted(_captured.strip().split('\n')):
+    print(_line)
 ```
 
 ```{testoutput}
@@ -255,7 +260,13 @@ $ python -m bytewax.run wordcount
 ```{testcode}
 :hide:
 
+import sys, io
+
+_old_stdout, sys.stdout = sys.stdout, io.StringIO()
 run_main(flow)
+_captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+for _line in sorted(_captured.strip().split('\n')):
+    print(_line)
 ```
 
 ```{testoutput}

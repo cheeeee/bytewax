@@ -416,15 +416,20 @@ def merge(
     ```{testcode}
     :hide:
 
+    import sys, io
     from bytewax.testing import run_main
 
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
     merge_eg.out: 1
-    merge_eg.out: 3
     merge_eg.out: 2
+    merge_eg.out: 3
     merge_eg.out: 4
     ```
 
@@ -1983,8 +1988,15 @@ def fold_final(
 
     ```{testcode}
     :hide:
+
+    import sys, io
     from bytewax.testing import run_main
+
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
