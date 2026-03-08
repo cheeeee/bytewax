@@ -213,7 +213,9 @@ impl PartitionedPartState {
 
 impl FixedPartitionedSource {
     fn list_parts(&self, py: Python) -> PyResult<Vec<StateKey>> {
-        self.0.call_method0(py, "list_parts")?.extract(py)
+        self.0
+            .call_method0(py, intern!(py, "list_parts"))?
+            .extract(py)
     }
 
     fn build_part(
@@ -663,7 +665,7 @@ impl StatefulPartition {
     }
 
     fn close(&self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close")?;
+        let _ = self.0.call_method0(py, intern!(py, "close"))?;
         Ok(())
     }
 }
@@ -724,7 +726,11 @@ impl DynamicSource {
         count: WorkerCount,
     ) -> PyResult<StatelessPartition> {
         self.0
-            .call_method1(py, "build", (step_id.0.clone(), index.0, count.0))?
+            .call_method1(
+                py,
+                intern!(py, "build"),
+                (step_id.0.clone(), index.0, count.0),
+            )?
             .extract(py)
     }
 
@@ -943,7 +949,7 @@ impl StatelessPartition {
     }
 
     fn close(&self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close")?;
+        let _ = self.0.call_method0(py, intern!(py, "close"))?;
         Ok(())
     }
 }

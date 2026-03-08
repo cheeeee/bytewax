@@ -744,6 +744,10 @@ where
 
                         let mut kv_downstream_handle = kv_downstream_output.activate();
                         let mut snaps_handle = snaps_output.activate();
+                        // Reuse across epochs to avoid reallocation.
+                        let mut keyed_items: AHashMap<StateKey, Vec<Py<PyAny>>> = AHashMap::new();
+                        let mut awoken_keys_this_activation: AHashSet<StateKey> = AHashSet::new();
+                        let mut notify_at_done: AHashSet<StateKey> = AHashSet::new();
                         // For each epoch in order.
                         for epoch in process_epochs {
                             tracing::trace!("Processing epoch {epoch:?}");
@@ -760,17 +764,16 @@ where
                             let mut kv_downstream_session =
                                 kv_downstream_handle.session(&output_cap);
 
-                            // Keep track of all keys that had logic
-                            // methods called so we know which to call
-                            // `notify_at` on.
-                            let mut awoken_keys_this_activation: AHashSet<StateKey> = AHashSet::new();
+                            // Clear per-epoch tracking sets (reuse allocations).
+                            awoken_keys_this_activation.clear();
+                            notify_at_done.clear();
 
                             // First, call `on_batch` for all the input
                             // items.
                             if let Some(items) = inbuf.remove(&epoch) {
                                 item_inp_count.add(items.len() as u64, &labels);
 
-                                let mut keyed_items: AHashMap<StateKey, Vec<Py<PyAny>>> = AHashMap::new();
+                                keyed_items.clear();
                                 for (worker, (key, value)) in items {
                                     assert!(worker == this_worker);
                                     keyed_items.entry(key).or_default().push(<Py<PyAny>>::from(value));
@@ -779,7 +782,7 @@ where
                                 unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     let builder = builder.bind(py);
 
-                                    for (key, values) in keyed_items {
+                                    for (key, values) in keyed_items.drain() {
                                         // Ok, let's actually run the logic code!
                                         // Pull out or build the logic for the
                                         // current key.
@@ -811,6 +814,21 @@ where
                                         if matches!(is_complete, IsComplete::Discard) {
                                             logics.remove(&key);
                                             sched_cache.remove(&key);
+                                        } else {
+                                            // Inline notify_at here to avoid a
+                                            // separate Python call in the
+                                            // notify_at loop below.
+                                            let sched = with_timer!(
+                                                notify_at_histogram,
+                                                labels,
+                                                logic.notify_at(py).reraise_with(|| {
+                                                    format!("error calling `StatefulBatchLogic.notify_at` in {step_id} for key {key}")
+                                                })?
+                                            );
+                                            if let Some(sched) = sched {
+                                                sched_cache.insert(key.clone(), sched);
+                                            }
+                                            notify_at_done.insert(key.clone());
                                         }
 
                                         awoken_keys_this_activation.insert(key);
@@ -908,36 +926,47 @@ where
 
                             // Then go through all awoken keys and
                             // update the next scheduled notification
-                            // times.
+                            // times. Skip keys already handled during
+                            // on_batch (inlined notify_at above).
                             if !awoken_keys_this_activation.is_empty() {
-                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
-                                    for key in &awoken_keys_this_activation {
-                                        // It's possible the logic was
-                                        // discarded on a previous
-                                        // activation but the epoch
-                                        // hasn't ended so the key is
-                                        // still in
-                                        // `awoken_keys_buffer`.
-                                        if let Some(logic) = logics.get(key) {
-                                            let sched = with_timer!(
-                                                notify_at_histogram,
-                                                labels,
-                                                logic.notify_at(py).reraise_with(|| {
-                                                    format!("error calling `StatefulBatchLogic.notify_at` in {step_id} for key {key}")
-                                                })?
-                                            );
-                                            if let Some(sched) = sched {
-                                                sched_cache.insert(key.clone(), sched);
+                                // Only acquire GIL if there are keys
+                                // not yet handled by the on_batch loop.
+                                let needs_notify_at = awoken_keys_this_activation
+                                    .iter()
+                                    .any(|key| !notify_at_done.contains(key));
+                                if needs_notify_at {
+                                    unwrap_any!(Python::attach(|py| -> PyResult<()> {
+                                        for key in &awoken_keys_this_activation {
+                                            if notify_at_done.contains(key) {
+                                                continue;
+                                            }
+                                            // It's possible the logic was
+                                            // discarded on a previous
+                                            // activation but the epoch
+                                            // hasn't ended so the key is
+                                            // still in
+                                            // `awoken_keys_buffer`.
+                                            if let Some(logic) = logics.get(key) {
+                                                let sched = with_timer!(
+                                                    notify_at_histogram,
+                                                    labels,
+                                                    logic.notify_at(py).reraise_with(|| {
+                                                        format!("error calling `StatefulBatchLogic.notify_at` in {step_id} for key {key}")
+                                                    })?
+                                                );
+                                                if let Some(sched) = sched {
+                                                    sched_cache.insert(key.clone(), sched);
+                                                }
                                             }
                                         }
-                                    }
 
-                                    Ok(())
-                                }));
+                                        Ok(())
+                                    }));
+                                }
 
                                 // Now mark all these keys as aowken
                                 // in the epoch so snapshotting works.
-                                awoken_keys_this_epoch_buffer.extend(awoken_keys_this_activation);
+                                awoken_keys_this_epoch_buffer.extend(awoken_keys_this_activation.drain());
                             }
 
                             // Snapshot and output state changes.

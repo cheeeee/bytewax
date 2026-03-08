@@ -1527,16 +1527,21 @@ def collect_window(
     ```{testcode}
     :hide:
 
+    import sys, io
     from bytewax.testing import run_main
 
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
     collect_window_example.output: "('key1', 'APPLE', 12:00) => Window 0"
     collect_window_example.output: "('key1', 'BANANA', 12:05) => Window 0"
-    collect_window_example.output: "('key2', 'CHERRY', 12:10) => Window 1"
     collect_window_example.output: "('key1', 'DATE', 12:15) => Window 1"
+    collect_window_example.output: "('key2', 'CHERRY', 12:10) => Window 1"
     collect_window_example.output: "('key2', 'ELDERBERRY', 12:20) => Window 2"
     ```
 
@@ -1648,15 +1653,20 @@ def count_window(
     ```{testcode}
     :hide:
 
+    import sys, io
     from bytewax.testing import run_main
 
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
-    count_window_example.output: "Item 'banana' occurred 1 times in Window 0"
-    count_window_example.output: "Item 'apple' occurred 2 times in Window 0"
     count_window_example.output: "Item 'apple' occurred 1 times in Window 1"
+    count_window_example.output: "Item 'apple' occurred 2 times in Window 0"
+    count_window_example.output: "Item 'banana' occurred 1 times in Window 0"
     count_window_example.output: "Item 'banana' occurred 1 times in Window 1"
     count_window_example.output: "Item 'cherry' occurred 1 times in Window 1"
     ```
@@ -1801,9 +1811,15 @@ def fold_window(
 
     ```{testcode}
     :hide:
+
+    import sys, io
     from bytewax.testing import run_main
 
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
