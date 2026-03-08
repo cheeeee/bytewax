@@ -446,11 +446,14 @@ jobs:
           enable-cache: true
       - run: uv python install
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
-      - name: Install Rust toolchain from rust-toolchain.toml
+      - name: Install Rust toolchain
         run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+          . "$HOME/.cargo/env"
           RUST_VERSION=$(grep '^channel' rust-toolchain.toml | sed 's/.*"\(.*\)".*/\1/')
-          RUSTUP_HOME=/root/.rustup rustup toolchain install "$RUST_VERSION" --profile minimal
-          RUSTUP_HOME=/root/.rustup rustup default "$RUST_VERSION"
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Run Rust criterion benchmarks
         shell: bash
         run: |
