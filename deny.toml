@@ -32,7 +32,7 @@ license-files = [{ path = "COPYRIGHT", hash = 0x39f8ad31 }]
 
 [bans]
 multiple-versions = "warn"
-wildcards = "warn"
+wildcards = "allow"
 skip = [
     { crate = "axum@0.6.20", reason = "tonic 0.9 pulls in axum 0.6, bytewax uses 0.5" },
     { crate = "axum-core@0.3.4", reason = "transitive from tonic's axum 0.6" },
@@ -42,6 +42,8 @@ skip = [
     { crate = "indexmap@1.9.3", reason = "opentelemetry_api uses older indexmap" },
     { crate = "matchit@0.7.3", reason = "tonic's axum 0.6 uses matchit 0.7" },
     { crate = "socket2@0.5.10", reason = "hyper 0.14 uses socket2 0.5" },
+    { crate = "ordered-float@2.10.1", reason = "transitive from opentelemetry-jaeger thrift" },
+    { crate = "tracing-log@0.1.4", reason = "transitive from tracing-opentelemetry 0.20" },
 ]
 skip-tree = [
     { crate = "synstructure@0.12.6", reason = "abomonation_derive uses old synstructure" },

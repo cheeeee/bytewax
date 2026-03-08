@@ -416,15 +416,20 @@ def merge(
     ```{testcode}
     :hide:
 
+    import sys, io
     from bytewax.testing import run_main
 
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
     merge_eg.out: 1
-    merge_eg.out: 3
     merge_eg.out: 2
+    merge_eg.out: 3
     merge_eg.out: 4
     ```
 
@@ -1242,9 +1247,14 @@ def count_final(
     ```{testcode}
     :hide:
 
+    import sys, io
     from bytewax.testing import run_main
 
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
@@ -1706,22 +1716,26 @@ def filter(  # noqa: A001
         predicate returns `True`.
 
     """
+    checked = False
 
-    def shim_mapper(x: X) -> Iterable[X]:
-        keep = predicate(x)
-        if not isinstance(keep, bool):
-            msg = (
-                f"return value of `predicate` {f_repr(predicate)} "
-                f"in step {step_id!r} must be a `bool`; "
-                f"got a {type(keep)!r} instead"
-            )
-            raise TypeError(msg)
-        if keep:
-            return (x,)
+    def shim_mapper(xs: List[X]) -> List[X]:
+        nonlocal checked
+        if not checked and xs:
+            keep = predicate(xs[0])
+            if not isinstance(keep, bool):
+                msg = (
+                    f"return value of `predicate` {f_repr(predicate)} "
+                    f"in step {step_id!r} must be a `bool`; "
+                    f"got a {type(keep)!r} instead"
+                )
+                raise TypeError(msg)
+            checked = True
+            result = [xs[0]] if keep else []
+            result.extend(x for x in xs[1:] if predicate(x))
+            return result
+        return [x for x in xs if predicate(x)]
 
-        return _EMPTY
-
-    return flat_map("flat_map", up, shim_mapper)
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @operator
@@ -1770,22 +1784,27 @@ def filter_value(
         the predicate returns `True`.
 
     """
+    checked = False
 
-    def shim_mapper(v: V) -> Iterable[V]:
-        keep = predicate(v)
-        if not isinstance(keep, bool):
-            msg = (
-                f"return value of `predicate` {f_repr(predicate)} "
-                f"in step {step_id!r} must be a `bool`; "
-                f"got a {type(keep)!r} instead"
-            )
-            raise TypeError(msg)
-        if keep:
-            return (v,)
+    def shim_mapper(xs: List[Tuple[str, V]]) -> List[Tuple[str, V]]:
+        nonlocal checked
+        if not checked and xs:
+            _k, v = xs[0]
+            keep = predicate(v)
+            if not isinstance(keep, bool):
+                msg = (
+                    f"return value of `predicate` {f_repr(predicate)} "
+                    f"in step {step_id!r} must be a `bool`; "
+                    f"got a {type(keep)!r} instead"
+                )
+                raise TypeError(msg)
+            checked = True
+            result = [xs[0]] if keep else []
+            result.extend((k, v) for k, v in xs[1:] if predicate(v))
+            return result
+        return [(k, v) for k, v in xs if predicate(v)]
 
-        return _EMPTY
-
-    return flat_map_value("filter", up, shim_mapper)
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @operator
@@ -1983,8 +2002,15 @@ def fold_final(
 
     ```{testcode}
     :hide:
+
+    import sys, io
     from bytewax.testing import run_main
+
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
@@ -2422,19 +2448,24 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[
         values.
 
     """
+    checked = False
 
-    def shim_mapper(x: X) -> Tuple[str, X]:
-        k = key(x)
-        if not isinstance(k, str):
-            msg = (
-                f"return value of `key` {f_repr(key)} "
-                f"in step {step_id!r} must be a `str`; "
-                f"got a {type(k)!r} instead"
-            )
-            raise TypeError(msg)
-        return (k, x)
+    def shim_mapper(xs: List[X]) -> List[Tuple[str, X]]:
+        nonlocal checked
+        if not checked and xs:
+            k0 = key(xs[0])
+            if not isinstance(k0, str):
+                msg = (
+                    f"return value of `key` {f_repr(key)} "
+                    f"in step {step_id!r} must be a `str`; "
+                    f"got a {type(k0)!r} instead"
+                )
+                raise TypeError(msg)
+            checked = True
+            return [(k0, xs[0])] + [(key(x), x) for x in xs[1:]]
+        return [(key(x), x) for x in xs]
 
-    return map("map", up, shim_mapper)
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @operator
@@ -2549,8 +2580,8 @@ def map(  # noqa: A001
 
     """
 
-    def shim_mapper(xs: List[X]) -> Iterable[Y]:
-        return (mapper(x) for x in xs)
+    def shim_mapper(xs: List[X]) -> List[Y]:
+        return [mapper(x) for x in xs]
 
     return flat_map_batch("flat_map_batch", up, shim_mapper)
 
@@ -2599,12 +2630,10 @@ def map_value(
 
     """
 
-    def shim_mapper(k_v: Tuple[str, V]) -> Tuple[str, W]:
-        k, v = k_v
-        w = mapper(v)
-        return (k, w)
+    def shim_mapper(xs: List[Tuple[str, V]]) -> List[Tuple[str, W]]:
+        return [(k, mapper(v)) for k, v in xs]
 
-    return map("map", up, shim_mapper)
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @overload
@@ -2652,8 +2681,14 @@ def max_final(
 
     ```{testcode}
     :hide:
+    import sys, io
     from bytewax.testing import run_main
+
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
@@ -2720,8 +2755,14 @@ def min_final(
 
     ```{testcode}
     :hide:
+    import sys, io
     from bytewax.testing import run_main
+
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
@@ -2813,8 +2854,14 @@ def reduce_final(
 
     ```{testcode}
     :hide:
+    import sys, io
     from bytewax.testing import run_main
+
+    _old_stdout, sys.stdout = sys.stdout, io.StringIO()
     run_main(flow)
+    _captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+    for _line in sorted(_captured.strip().splitlines()):
+        print(_line)
     ```
 
     ```{testoutput}
@@ -2973,6 +3020,57 @@ def stateful_flat_map_batch(
     return stateful("stateful", up, shim_builder)
 
 
+@dataclass
+class _StatefulMapBatchLogic(StatefulBatchLogic[V, W, Optional[S]]):
+    """Collapsed stateful_map logic.
+
+    Bypasses the stateful_flat_map/stateful layers for better
+    per-item performance by processing the entire batch in a single
+    on_batch call with no intermediate function calls per item.
+    """
+
+    step_id: str
+    mapper: Callable[[Optional[S], V], Tuple[Optional[S], W]]
+    state: Optional[S]
+
+    @override
+    def on_batch(self, values: List[V]) -> Tuple[List[W], bool]:
+        ws: List[W] = []
+        mapper = self.mapper
+        state = self.state
+        for v in values:
+            res = mapper(state, v)
+            try:
+                state, w = res
+            except TypeError as ex:
+                msg = (
+                    f"return value of `mapper` {f_repr(self.mapper)} "
+                    f"in step {self.step_id!r} "
+                    "must be a 2-tuple of `(updated_state, emit_value)`; "
+                    f"got a {type(res)!r} instead"
+                )
+                raise TypeError(msg) from ex
+            ws.append(w)
+        self.state = state
+        return (ws, state is None)
+
+    @override
+    def on_notify(self) -> Tuple[Iterable[W], bool]:
+        return (_EMPTY, self.RETAIN)
+
+    @override
+    def on_eof(self) -> Tuple[Iterable[W], bool]:
+        return (_EMPTY, self.RETAIN)
+
+    @override
+    def notify_at(self) -> Optional[datetime]:
+        return None
+
+    @override
+    def snapshot(self) -> Optional[S]:
+        return copy.deepcopy(self.state)
+
+
 @operator
 def stateful_map(
     step_id: str,
@@ -3044,19 +3142,9 @@ def stateful_map(
 
     """
 
-    def shim_mapper(state: Optional[S], v: V) -> Tuple[Optional[S], Iterable[W]]:
-        res = mapper(state, v)
-        try:
-            s, w = res
-        except TypeError as ex:
-            msg = (
-                f"return value of `mapper` {f_repr(mapper)} "
-                f"in step {step_id!r} "
-                "must be a 2-tuple of `(updated_state, emit_value)`; "
-                f"got a {type(res)!r} instead"
-            )
-            raise TypeError(msg) from ex
+    def shim_builder(
+        resume_state: Optional[S],
+    ) -> _StatefulMapBatchLogic[V, W, S]:
+        return _StatefulMapBatchLogic(step_id, mapper, resume_state)
 
-        return (s, (w,))
-
-    return stateful_flat_map("stateful_flat_map", up, shim_mapper)
+    return stateful_batch("stateful_batch", up, shim_builder)

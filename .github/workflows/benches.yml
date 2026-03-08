@@ -1,25 +1,21 @@
 name: benchmarks
 
 on:
-  push:
-    branches:
-      - "main"
-  pull_request:
-  # `workflow_dispatch` allows CodSpeed to trigger backtest
-  # performance analysis in order to generate initial data.
+  # CodSpeed backtesting and manual runs only.
+  # Automatic benchmarks run as part of the CI workflow.
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  wheels:
     strategy:
       fail-fast: false
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, Intel]
     container:
       image: buildpack-deps:22.04
     env:
@@ -79,14 +75,13 @@ jobs:
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
 
   benchmarks:
-    needs: [build]
+    needs: [wheels]
     strategy:
       fail-fast: false
       max-parallel: 1
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: [self-hosted, Linux, X64, Intel]
-    # No container — runs on bare metal for direct perf_event_open access
     steps:
       - name: Fix workspace permissions
         run: |
@@ -147,7 +142,7 @@ jobs:
   benchmarks-pass:
     if: always()
     needs: [benchmarks]
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, Intel]
     steps:
       - name: Fail if any dependency failed
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

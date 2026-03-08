@@ -627,7 +627,13 @@ op.inspect("check_join", joined_out.down)
 ```{testcode}
 :hide:
 
+import sys, io
+
+_old_stdout, sys.stdout = sys.stdout, io.StringIO()
 run_main(flow)
+_captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+for _line in sorted(_captured.strip().split('\n')):
+    print(_line)
 ```
 
 Looks like that's what we see! Notice the `None` in the output for key
@@ -635,8 +641,8 @@ Looks like that's what we see! Notice the `None` in the output for key
 for analysis, but you can ignore that.
 
 ```{testoutput}
-join_eg.check_join: ('456', (8328, ({'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'}, None)))
 join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})))
+join_eg.check_join: ('456', (8328, ({'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'}, None)))
 join_eg.check_join: ('456', (8329, (None, {'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 1, 15, tzinfo=datetime.timezone.utc), 'email': 'hive@bytewax.io'})))
 ```
 

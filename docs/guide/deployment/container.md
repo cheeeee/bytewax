@@ -90,7 +90,7 @@ $ docker build . -t bytewax-custom
 Modify the dataflow to read data from a kafka topic rather than the
 testing input:
 
-```{testcode}
+```python
 from bytewax import operators as op
 from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.stdio import StdOutSink

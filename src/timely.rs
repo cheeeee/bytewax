@@ -536,18 +536,15 @@ where
 
                                 let mut handle = partd_output.activate();
                                 let mut session = handle.session(cap);
-                                let len = known.len();
+                                // Pre-compute Vec for O(1) indexed access
+                                // instead of O(n) BTreeSet::iter().nth().
+                                let parts_vec: Vec<_> = known.iter().collect();
+                                let len = parts_vec.len();
                                 for (key, value) in items {
                                     let idx = pf.assign(&key);
                                     let wrapped_idx = idx % len;
                                     tracing::trace!("Assigner gave value {idx} % {len}; wrapped to {wrapped_idx}");
-                                    // Infallible: wrapped_idx is idx % len, guaranteed in bounds.
-                                    #[allow(clippy::expect_used)]
-                                    let part = known
-                                        .iter()
-                                        .nth(wrapped_idx)
-                                        .expect("hash idx was not in len of known parts")
-                                        .clone();
+                                    let part = parts_vec[wrapped_idx].clone();
                                     session.give((part, (key, value)));
                                 }
                             }

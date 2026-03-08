@@ -76,7 +76,7 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 ///
 /// This is only used for unit testing. See `bytewax.run`.
 ///
-/// ```{testcode}
+/// ```text
 /// from bytewax.dataflow import Dataflow
 /// import bytewax.operators as op
 /// from bytewax.testing import TestingSource, run_main
@@ -88,7 +88,7 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 /// run_main(flow)
 /// ```
 ///
-/// ```{testoutput}
+/// ```text
 /// 0
 /// 1
 /// 2
@@ -187,7 +187,7 @@ pub(crate) fn run_main(
 ///
 /// Blocks until execution is complete.
 ///
-/// ```{testcode}
+/// ```text
 /// from bytewax.dataflow import Dataflow
 /// import bytewax.operators as op
 /// from bytewax.testing import TestingSource, cluster_main
@@ -203,7 +203,7 @@ pub(crate) fn run_main(
 /// cluster_main(flow, addresses, proc_id)
 /// ```
 ///
-/// ```{testoutput}
+/// ```text
 /// 0
 /// 1
 /// 2

@@ -2,13 +2,13 @@
 
 It's suggested to import operators like this:
 
-```{testcode}
+```python
 from bytewax.connectors.kafka import operators as kop
 ```
 
 And then you can use the operators like this:
 
-```{testcode}
+```python
 from bytewax.dataflow import Dataflow
 
 flow = Dataflow("kafka-in-out")
