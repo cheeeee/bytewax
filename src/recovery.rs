@@ -3,9 +3,9 @@
 //! For a user-centric version of recovery, read the
 //! `bytewax.recovery` Python module docstring. Read that first.
 
+use ahash::AHashMap;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
-use ahash::AHashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fmt::Debug;
@@ -2035,7 +2035,10 @@ mod tests {
             assert!(err.is_instance_of::<PyTypeError>(py));
             let msg = err.to_string();
             assert!(msg.contains("recovery.rs"), "expected file in: {msg}");
-            assert!(msg.contains("backup interval"), "expected message in: {msg}");
+            assert!(
+                msg.contains("backup interval"),
+                "expected message in: {msg}"
+            );
         });
     }
 }

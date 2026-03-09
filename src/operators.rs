@@ -446,8 +446,11 @@ where
                         #[allow(clippy::iter_with_drain)]
                         for (key, value) in buf.drain(..) {
                             #[allow(clippy::unwrap_used)]
-                            let item: Py<PyAny> =
-                                (key, value.bind(py)).into_pyobject(py).unwrap().unbind().into();
+                            let item: Py<PyAny> = (key, value.bind(py))
+                                .into_pyobject(py)
+                                .unwrap()
+                                .unbind()
+                                .into();
                             session.give(TdPyAny::from(item));
                         }
                     });

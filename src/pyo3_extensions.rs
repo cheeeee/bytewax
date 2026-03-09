@@ -273,7 +273,10 @@ mod tests {
             let err = result.unwrap_err();
             assert!(err.is_instance_of::<PyTypeError>(py));
             let msg = err.to_string();
-            assert!(msg.contains("pyo3_extensions.rs"), "expected file in: {msg}");
+            assert!(
+                msg.contains("pyo3_extensions.rs"),
+                "expected file in: {msg}"
+            );
             assert!(msg.contains("not callable"), "expected message in: {msg}");
         });
     }
