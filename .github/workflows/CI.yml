@@ -53,8 +53,11 @@ jobs:
     env:
       UV_LINK_MODE: copy
     steps:
-      - name: Fix workspace permissions
-        run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+      - uses: ./.github/actions/clean-runner
+        with:
+          workspace: ${{ github.workspace }}
+          clean-cargo: 'true'
+          clean-pre-commit: 'true'
       - name: Create sudo wrapper
         run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
       - name: Checkout
@@ -63,8 +66,6 @@ jobs:
       # globally so git works in subsequent steps (pre-commit, etc.)
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Clean stale runner state
-        run: rm -rf ~/.cargo/registry/src/ ~/.cache/pre-commit/
       - uses: actions/cache@v5
         with:
           path: |
@@ -209,8 +210,10 @@ jobs:
           CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
           KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     steps:
-      - name: Fix workspace permissions
-        run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+      - uses: ./.github/actions/clean-runner
+        with:
+          workspace: ${{ github.workspace }}
+          clean-cargo: 'true'
       # maturin-action post-build runs "sudo chown" for permission fix.
       # Container runs as root so sudo is unnecessary; provide a no-op wrapper.
       - name: Create sudo wrapper
@@ -218,8 +221,6 @@ jobs:
       - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Clean stale runner state
-        run: rm -rf ~/.cargo/registry/src/
       - uses: actions/cache@v5
         with:
           path: |
@@ -426,15 +427,15 @@ jobs:
     env:
       UV_LINK_MODE: copy
     steps:
-      - name: Fix workspace permissions
-        run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+      - uses: ./.github/actions/clean-runner
+        with:
+          workspace: ${{ github.workspace }}
+          clean-cargo: 'true'
       - name: Create sudo wrapper
         run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
       - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Clean stale runner state
-        run: rm -rf ~/.cargo/registry/src/
       - uses: actions/cache@v5
         with:
           path: |
@@ -493,10 +494,11 @@ jobs:
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: [self-hosted, Linux, X64, Intel]
     steps:
-      - name: Fix workspace permissions
-        run: |
-          docker run --rm -v "${{ github.workspace }}:/workspace" alpine sh -c \
-            'chmod -R a+rwX /workspace && rm -rf /workspace/venv /workspace/.ruff_cache' 2>/dev/null || true
+      - uses: ./.github/actions/clean-runner
+        with:
+          workspace: ${{ github.workspace }}
+          mode: host
+          clean-venv: 'true'
       - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -558,10 +560,11 @@ jobs:
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: [self-hosted, Linux, X64, Intel]
     steps:
-      - name: Fix workspace permissions
-        run: |
-          docker run --rm -v "${{ github.workspace }}:/workspace" alpine sh -c \
-            'chmod -R a+rwX /workspace && rm -rf /workspace/venv /workspace/.ruff_cache' 2>/dev/null || true
+      - uses: ./.github/actions/clean-runner
+        with:
+          workspace: ${{ github.workspace }}
+          mode: host
+          clean-venv: 'true'
       - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -629,9 +632,6 @@ jobs:
           name: perf-results-py${{ matrix.python-version }}
           path: results-py${{ matrix.python-version }}.json
           retention-days: 30
-      - name: Fix workspace permissions
-        if: always()
-        run: chmod -R a+rwX "$GITHUB_WORKSPACE" 2>/dev/null || true
 
   kafka-bench:
     needs: [linux]
@@ -642,10 +642,11 @@ jobs:
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: [self-hosted, Linux, X64, Intel]
     steps:
-      - name: Fix workspace permissions
-        run: |
-          docker run --rm -v "${{ github.workspace }}:/workspace" alpine sh -c \
-            'chmod -R a+rwX /workspace && rm -rf /workspace/venv /workspace/.ruff_cache' 2>/dev/null || true
+      - uses: ./.github/actions/clean-runner
+        with:
+          workspace: ${{ github.workspace }}
+          mode: host
+          clean-venv: 'true'
       - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
