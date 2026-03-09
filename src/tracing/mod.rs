@@ -108,32 +108,30 @@ fn get_log_level(level: Option<String>) -> PyResult<LevelFilter> {
     }
 }
 
+fn build_log_layer(log_level: LevelFilter) -> impl Layer<Registry> {
+    tracing_subscriber::fmt::Layer::default()
+        .compact()
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_names(true)
+        .with_filter(Targets::new().with_target("bytewax", log_level))
+}
+
 /// Synchronous setup for logging only (no tracing backend).
 /// No tokio runtime needed — zero extra threads.
 fn setup_logging_only(log_level: LevelFilter) -> PyResult<()> {
-    let logs = tracing_subscriber::fmt::Layer::default()
-        .compact()
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_names(true)
-        .with_filter(Targets::new().with_target("bytewax", log_level));
-    tracing::subscriber::set_global_default(Registry::default().with(logs))
+    tracing::subscriber::set_global_default(Registry::default().with(build_log_layer(log_level)))
         .raise::<PyRuntimeError>("error setting global default tracer")
 }
 
-/// Async setup for tracing with a backend (OTLP/Jaeger).
-/// Requires a tokio runtime for `install_batch(Tokio)` background export.
-#[allow(clippy::unused_async)]
-async fn setup_with_tracer(
+/// Setup tracing with a backend (OTLP/Jaeger).
+/// Must be called within a tokio runtime context (`rt.enter()`) so that
+/// `with_batch_exporter` can spawn its background export task.
+fn setup_with_tracer(
     log_level: LevelFilter,
     tracer: Box<dyn TracerBuilder + Send>,
 ) -> PyResult<()> {
-    let logs = tracing_subscriber::fmt::Layer::default()
-        .compact()
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_names(true)
-        .with_filter(Targets::new().with_target("bytewax", log_level));
+    let logs = build_log_layer(log_level);
     let provider = tracer.build().reraise("error building tracer")?;
     let otel_tracer = provider.tracer("bytewax");
     let telemetry = tracing_opentelemetry::layer()
@@ -159,10 +157,11 @@ impl BytewaxTracer {
                 .rt
                 .as_ref()
                 .ok_or_else(|| tracked_err::<PyRuntimeError>("tracing runtime was shut down"))?;
-            rt.block_on(rt.spawn(setup_with_tracer(log_level, tracer)))
-                .map_err(|err| {
-                    tracked_err::<PyRuntimeError>(&format!("error setting up tracing: {err}"))
-                })?
+            // Enter the tokio runtime context so that with_batch_exporter
+            // can spawn its background export task on the worker thread.
+            let _guard = rt.enter();
+            setup_with_tracer(log_level, tracer)?;
+            Ok(())
         } else {
             setup_logging_only(log_level)
         }
