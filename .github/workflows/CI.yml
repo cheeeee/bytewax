@@ -109,6 +109,7 @@ jobs:
         shell: bash
         run: |
           . venv/bin/activate
+          pre-commit clean
           just lint-pc
       # Build wheel via maturin-action (avoids OOM from in-process
       # cargo build during `uv pip sync -e .`). No sccache — the GHA
