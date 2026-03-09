@@ -21,15 +21,17 @@ jobs:
     env:
       UV_LINK_MODE: copy
     steps:
-      - uses: ./.github/actions/clean-runner
-        with:
-          workspace: ${{ github.workspace }}
-          clean-cargo: 'true'
+      - name: Fix workspace permissions
+        run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
       - name: Create sudo wrapper
         run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
       - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: ./.github/actions/clean-runner
+        with:
+          workspace: ${{ github.workspace }}
+          clean-cargo: 'true'
       - uses: actions/cache@v5
         with:
           path: |
@@ -85,11 +87,10 @@ jobs:
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: [self-hosted, Linux, X64, Intel]
     steps:
-      - uses: ./.github/actions/clean-runner
-        with:
-          workspace: ${{ github.workspace }}
-          mode: host
-          clean-venv: 'true'
+      - name: Fix workspace permissions
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/workspace" alpine:latest \
+            sh -c 'chmod -R a+rwX /workspace && rm -rf /workspace/venv /workspace/.ruff_cache' 2>/dev/null || true
       - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
