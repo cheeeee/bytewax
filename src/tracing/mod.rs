@@ -7,6 +7,8 @@
 //! Each tracing backend has to implement the `TracerBuilder` trait, which
 //! requires a `build` function that is used to build the telemetry layer.
 
+use std::time::Duration;
+
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use pyo3::exceptions::PyRuntimeError;
@@ -75,7 +77,17 @@ impl PyConfigClass<Box<dyn TracerBuilder + Send>> for Py<TracingConfig> {
 /// This should only be built via `setup_tracing`.
 #[pyclass]
 struct BytewaxTracer {
-    rt: tokio::runtime::Runtime,
+    rt: Option<tokio::runtime::Runtime>,
+}
+
+impl Drop for BytewaxTracer {
+    fn drop(&mut self) {
+        if let Some(rt) = self.rt.take() {
+            // Use a timeout to prevent hanging in forked child processes
+            // where tokio worker threads no longer exist after fork().
+            rt.shutdown_timeout(Duration::from_millis(100));
+        }
+    }
 }
 
 #[allow(clippy::option_if_let_else)]
@@ -96,37 +108,39 @@ fn get_log_level(level: Option<String>) -> PyResult<LevelFilter> {
     }
 }
 
-// Async is required by tokio::spawn even though no await is used.
+/// Synchronous setup for logging only (no tracing backend).
+/// No tokio runtime needed — zero extra threads.
+fn setup_logging_only(log_level: LevelFilter) -> PyResult<()> {
+    let logs = tracing_subscriber::fmt::Layer::default()
+        .compact()
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_names(true)
+        .with_filter(Targets::new().with_target("bytewax", log_level));
+    tracing::subscriber::set_global_default(Registry::default().with(logs))
+        .raise::<PyRuntimeError>("error setting global default tracer")
+}
+
+/// Async setup for tracing with a backend (OTLP/Jaeger).
+/// Requires a tokio runtime for `install_batch(Tokio)` background export.
 #[allow(clippy::unused_async)]
-async fn setup(
+async fn setup_with_tracer(
     log_level: LevelFilter,
-    tracer: Option<Box<dyn TracerBuilder + Send>>,
+    tracer: Box<dyn TracerBuilder + Send>,
 ) -> PyResult<()> {
     let logs = tracing_subscriber::fmt::Layer::default()
         .compact()
-        // Show source file
         .with_file(true)
-        // Display source code line numbers
         .with_line_number(true)
-        // Display the thread ID an event was recorded on
         .with_thread_names(true)
         .with_filter(Targets::new().with_target("bytewax", log_level));
-
-    // If the conf was not none, setup the global subscriber with both log and
-    // telemetry layer, otherwise just setup logging.
-    if let Some(tracer) = tracer {
-        let provider = tracer.build().reraise("error building tracer")?;
-        let otel_tracer = provider.tracer("bytewax");
-        let telemetry = tracing_opentelemetry::layer()
-            .with_tracer(otel_tracer)
-            // Send all traces from bytewax
-            .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE));
-        tracing::subscriber::set_global_default(Registry::default().with(logs).with(telemetry))
-            .raise::<PyRuntimeError>("error setting global default tracer")
-    } else {
-        tracing::subscriber::set_global_default(Registry::default().with(logs))
-            .raise::<PyRuntimeError>("error setting global default tracer")
-    }
+    let provider = tracer.build().reraise("error building tracer")?;
+    let otel_tracer = provider.tracer("bytewax");
+    let telemetry = tracing_opentelemetry::layer()
+        .with_tracer(otel_tracer)
+        .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE));
+    tracing::subscriber::set_global_default(Registry::default().with(logs).with(telemetry))
+        .raise::<PyRuntimeError>("error setting global default tracer")
 }
 
 impl BytewaxTracer {
@@ -138,16 +152,20 @@ impl BytewaxTracer {
         tracer: Option<Box<dyn TracerBuilder + Send>>,
         log_level: Option<String>,
     ) -> PyResult<()> {
-        // Prepare the log layer
         let log_level = get_log_level(log_level)?;
 
-        // We need an async fn block to properly initialize the tracing runtime
-        // and be able to propagate errors.
-        self.rt
-            .block_on(self.rt.spawn(setup(log_level, tracer)))
-            .map_err(|err| {
-                tracked_err::<PyRuntimeError>(&format!("error setting up tracing: {err}"))
-            })?
+        if let Some(tracer) = tracer {
+            let rt = self
+                .rt
+                .as_ref()
+                .ok_or_else(|| tracked_err::<PyRuntimeError>("tracing runtime was shut down"))?;
+            rt.block_on(rt.spawn(setup_with_tracer(log_level, tracer)))
+                .map_err(|err| {
+                    tracked_err::<PyRuntimeError>(&format!("error setting up tracing: {err}"))
+                })?
+        } else {
+            setup_logging_only(log_level)
+        }
     }
 }
 
@@ -183,12 +201,23 @@ fn setup_tracing(
     tracing_config: Option<Py<TracingConfig>>,
     log_level: Option<String>,
 ) -> PyResult<Bound<'_, BytewaxTracer>> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .raise::<PyRuntimeError>("error building tokio runtime")?;
-    let tracer = Bound::new(py, BytewaxTracer { rt })?;
     let builder = tracing_config.map(|conf| conf.downcast(py)).transpose()?;
+
+    // Only create a tokio runtime when a tracing backend is configured.
+    // Logging-only mode is fully synchronous — zero extra threads.
+    let rt = if builder.is_some() {
+        Some(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()
+                .raise::<PyRuntimeError>("error building tokio runtime")?,
+        )
+    } else {
+        None
+    };
+
+    let tracer = Bound::new(py, BytewaxTracer { rt })?;
     tracer.borrow().setup(builder, log_level)?;
     Ok(tracer)
 }
