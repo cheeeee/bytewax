@@ -119,8 +119,22 @@ fn build_log_layer(log_level: LevelFilter) -> impl Layer<Registry> {
 
 /// Synchronous setup for logging only (no tracing backend).
 /// No tokio runtime needed — zero extra threads.
+///
+/// Uses `fmt()` builder with `with_max_level()` instead of
+/// `Registry + per-layer Targets filter` so that the subscriber's
+/// `max_level_hint()` is properly set. This causes the global
+/// `MAX_LEVEL` atomic to be set, allowing `debug_span!()` and
+/// `trace!()` macros to short-circuit via a single atomic load
+/// instead of entering the full subscriber dispatch.
 fn setup_logging_only(log_level: LevelFilter) -> PyResult<()> {
-    tracing::subscriber::set_global_default(Registry::default().with(build_log_layer(log_level)))
+    let subscriber = tracing_subscriber::fmt()
+        .compact()
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_names(true)
+        .with_max_level(log_level)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)
         .raise::<PyRuntimeError>("error setting global default tracer")
 }
 

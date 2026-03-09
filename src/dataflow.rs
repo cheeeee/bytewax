@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::pyo3_extensions::SafePy;
 use crate::recovery::StepId;
 
@@ -17,7 +18,7 @@ impl<'py> FromPyObject<'_, 'py> for Dataflow {
         if ob.is_instance(&abc)? {
             Ok(Self(SafePy::from(ob.to_owned().unbind())))
         } else {
-            Err(PyTypeError::new_err(
+            Err(tracked_err::<PyTypeError>(
                 "dataflow must subclass `bytewax.dataflow.Dataflow`",
             ))
         }
@@ -54,7 +55,7 @@ impl<'py> FromPyObject<'_, 'py> for Operator {
         if ob.is_instance(&abc)? {
             Ok(Self(SafePy::from(ob.to_owned().unbind())))
         } else {
-            Err(PyTypeError::new_err(
+            Err(tracked_err::<PyTypeError>(
                 "operator must subclass `bytewax.dataflow.Operator`",
             ))
         }

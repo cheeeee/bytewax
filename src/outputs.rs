@@ -584,8 +584,7 @@ where
 
                         let mut output_session = output.session(&cap);
 
-                        let batch: Vec<Py<PyAny>> = tmp_incoming
-                            .split_off(0)
+                        let batch: Vec<Py<PyAny>> = std::mem::take(&mut tmp_incoming)
                             .into_iter()
                             .map(std::convert::Into::into)
                             .collect();
