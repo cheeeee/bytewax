@@ -9,6 +9,24 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Adds {py:obj}`~bytewax.connectors.kafka.StatefulKafkaSink` — a
+  recovery-aware Kafka output sink using `FixedPartitionedSink` with
+  multi-topic support and at-least-once processing guarantees.
+
+- Adds {py:obj}`~bytewax.connectors.kafka.operators.stateful_output`
+  operator for easy stateful Kafka output with automatic partition
+  routing.
+
+- Adds delivery callbacks to
+  {py:obj}`~bytewax.connectors.kafka.KafkaSink` to detect produce
+  failures. Previously, failed deliveries were silently dropped.
+  Raises {py:obj}`~bytewax.connectors.kafka.KafkaProduceError` on
+  delivery failure.
+
+- Enables idempotent producing (`enable.idempotence=true`) by default
+  in both `KafkaSink` and `StatefulKafkaSink` to prevent duplicates
+  from librdkafka internal retries.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the

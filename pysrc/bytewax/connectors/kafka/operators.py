@@ -18,7 +18,7 @@ kop.output("kafka-out", kafka_input.oks, brokers=[...], topic="...")
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Generic, List, Optional, TypeVar, Union, cast
+from typing import Any, Callable, Dict, Generic, List, Optional, TypeVar, Union, cast
 
 import bytewax.operators as op
 import confluent_kafka
@@ -32,6 +32,7 @@ from bytewax.connectors.kafka import (
     KafkaSinkMessage,
     KafkaSource,
     KafkaSourceMessage,
+    StatefulKafkaSink,
     V,
 )
 from bytewax.dataflow import Dataflow, Stream, operator
@@ -432,3 +433,63 @@ def serialize(
         return msg._with_key_and_value(key, value)
 
     return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
+
+
+@operator
+def stateful_output(
+    step_id: str,
+    up: Stream[
+        Union[
+            KafkaSourceMessage[Optional[bytes], Optional[bytes]],
+            KafkaSinkMessage[Optional[bytes], Optional[bytes]],
+        ]
+    ],
+    *,
+    brokers: List[str],
+    topics: List[str],
+    add_config: Optional[Dict[str, str]] = None,
+    key_fn: Optional[
+        Callable[[KafkaSinkMessage[Optional[bytes], Optional[bytes]]], str]
+    ] = None,
+) -> None:
+    """Produce to Kafka as a stateful output sink with recovery support.
+
+    Partitions are the unit of parallelism.  Each Kafka partition is a
+    Bytewax partition that participates in the recovery system's epoch
+    gating.
+
+    Can support at-least-once processing.  Messages from the resume
+    epoch will be duplicated right after resume.
+
+    :arg step_id: Unique ID.
+
+    :arg up: Stream of fully serialized messages.  Key and value must
+        be ``Optional[bytes]``.
+
+    :arg brokers: List of ``host:port`` strings of Kafka brokers.
+
+    :arg topics: List of topics to produce to.
+
+    :arg add_config: Any additional configuration properties.  See the
+        `rdkafka documentation
+        <https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md>`_
+        for options.
+
+    :arg key_fn: Optional function to extract a routing key from each
+        message.  Defaults to ``"topic:message_key"``.
+
+    """
+    sink_msgs = _to_sink("to_sink", up)
+
+    if key_fn is None:
+
+        def _default_key(
+            msg: KafkaSinkMessage[Optional[bytes], Optional[bytes]],
+        ) -> str:
+            return f"{msg.topic}:{msg.key or b''}"
+
+        keyed = op.key_on("key_on", sink_msgs, _default_key)
+    else:
+        keyed = op.key_on("key_on", sink_msgs, key_fn)
+
+    op.output("kafka_out", keyed, StatefulKafkaSink(brokers, topics, add_config))

@@ -41,16 +41,24 @@ kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
+from zlib import adler32
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
-from bytewax.outputs import DynamicSink, StatelessSinkPartition
+from bytewax.outputs import (
+    DynamicSink,
+    FixedPartitionedSink,
+    StatefulSinkPartition,
+    StatelessSinkPartition,
+)
 from confluent_kafka import OFFSET_BEGINNING, Consumer, Producer, TopicPartition
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.admin import AdminClient
 from prometheus_client import Gauge
 
+logger = logging.getLogger(__name__)
 K = TypeVar("K")
 """Type of key in Kafka message."""
 
@@ -69,14 +77,29 @@ K2 = TypeVar("K2")
 V2 = TypeVar("V2")
 """Type of value in a modified Kafka message."""
 
+
+class KafkaProduceError(RuntimeError):
+    """Raised when one or more messages fail delivery to Kafka.
+
+    :arg errors: List of `(KafkaError, topic_partition_summary)` tuples
+        for each failed delivery.
+
+    """
+
+    def __init__(self, errors: List[Tuple[ConfluentKafkaError, str]]):
+        """Initialize with a list of delivery errors."""
+        self.errors = errors
+        msg = f"{len(errors)} message(s) failed delivery: {errors[0][0]}"
+        super().__init__(msg)
+
+
 # Set up metrics for Kafka
 #
 # This is a global var, since the Prometheus REGISTRY
 # is also global.
 BYTEWAX_CONSUMER_LAG_GAUGE = Gauge(
     "bytewax_kafka_consumer_lag",
-    "Difference between last offset on the broker "
-    "and the currently consumed offset.",
+    "Difference between last offset on the broker and the currently consumed offset.",
     ["step_id", "topic", "partition"],
 )
 
@@ -267,8 +290,7 @@ class _KafkaSourcePartition(
                 elif self._raise_on_errors:
                     # Discard all the messages in this batch too
                     err_msg = (
-                        f"error consuming from Kafka topic `{self._topic!r}`: "
-                        f"{error}"
+                        f"error consuming from Kafka topic `{self._topic!r}`: {error}"
                     )
                     raise RuntimeError(err_msg)
 
@@ -467,6 +489,55 @@ class KafkaSinkMessage(Generic[K_co, V_co]):
         )
 
 
+def _produce_batch(
+    producer: Producer,
+    default_topic: Optional[str],
+    items: List[KafkaSinkMessage[Optional[bytes], Optional[bytes]]],
+) -> None:
+    """Produce a batch of messages with delivery error tracking.
+
+    Calls ``producer.produce()`` for each item with an ``on_delivery``
+    callback, flushes at the end, and raises :class:`KafkaProduceError`
+    if any deliveries failed.
+    """
+    errors: List[Tuple[ConfluentKafkaError, str]] = []
+
+    def _on_delivery(err, msg):
+        if err is not None:
+            errors.append((err, f"{msg.topic()}[{msg.partition()}]"))
+
+    for msg in items:
+        topic = default_topic if msg.topic is None else msg.topic
+        if topic is None:
+            err = f"No topic to produce to for {msg}"
+            raise RuntimeError(err)
+
+        try:
+            producer.produce(
+                value=msg.value,
+                key=msg.key,
+                headers=msg.headers,
+                topic=topic,
+                timestamp=msg.timestamp,
+                on_delivery=_on_delivery,
+            )
+        except BufferError:
+            producer.flush()
+            producer.produce(
+                value=msg.value,
+                key=msg.key,
+                headers=msg.headers,
+                topic=topic,
+                timestamp=msg.timestamp,
+                on_delivery=_on_delivery,
+            )
+        producer.poll(0)
+    producer.flush()
+
+    if errors:
+        raise KafkaProduceError(errors)
+
+
 class _KafkaSinkPartition(
     StatelessSinkPartition[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]
 ):
@@ -477,21 +548,7 @@ class _KafkaSinkPartition(
     def write_batch(
         self, items: List[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]
     ) -> None:
-        for msg in items:
-            topic = self._topic if msg.topic is None else msg.topic
-            if topic is None:
-                err = f"No topic to produce to for {msg}"
-                raise RuntimeError(err)
-
-            self._producer.produce(
-                value=msg.value,
-                key=msg.key,
-                headers=msg.headers,
-                topic=topic,
-                timestamp=msg.timestamp,
-            )
-            self._producer.poll(0)
-        self._producer.flush()
+        _produce_batch(self._producer, self._topic, items)
 
     def close(self) -> None:
         self._producer.flush()
@@ -543,8 +600,146 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
         """See ABC docstring."""
         config = {
             "bootstrap.servers": ",".join(self._brokers),
+            "enable.idempotence": "true",
         }
         config.update(self._add_config)
+        config.pop("group.id", None)  # Producer doesn't use consumer groups
+        config["error_cb"] = lambda err: logger.error(
+            "KafkaSink librdkafka error: %s", err
+        )
         producer = Producer(config)
 
         return _KafkaSinkPartition(producer, self._topic)
+
+
+class _StatefulKafkaSinkPartition(
+    StatefulSinkPartition[KafkaSinkMessage[Optional[bytes], Optional[bytes]], int]
+):
+    """Partition for :class:`StatefulKafkaSink`.
+
+    Tracks the total number of messages written so that the recovery
+    system can gate epoch advancement on successful writes.
+    """
+
+    def __init__(self, producer: Producer, topic: str, resume_state: Optional[int]):
+        self._producer = producer
+        self._topic = topic
+        self._write_count: int = 0 if resume_state is None else resume_state
+
+    def write_batch(
+        self, values: List[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]
+    ) -> None:
+        _produce_batch(self._producer, self._topic, values)
+        self._write_count += len(values)
+
+    def snapshot(self) -> int:
+        return self._write_count
+
+    def close(self) -> None:
+        self._producer.flush()
+
+
+class StatefulKafkaSink(
+    FixedPartitionedSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]], int]
+):
+    """Kafka output sink with recovery support.
+
+    Uses :class:`FixedPartitionedSink` so that the sink participates
+    in the recovery system's epoch gating.  Each Kafka partition is a
+    Bytewax partition and gets its own :class:`_StatefulKafkaSinkPartition`.
+
+    Supports multiple target topics.  Items are routed to the correct
+    partition via a ``"topic:message_key"`` routing key set upstream
+    (see :func:`~bytewax.connectors.kafka.operators.stateful_output`).
+
+    Enables idempotent producing by default to prevent duplicates from
+    librdkafka internal retries.
+
+    Can support at-least-once processing.  Messages from the resume
+    epoch will be duplicated right after resume.
+
+    """
+
+    def __init__(
+        self,
+        brokers: Iterable[str],
+        topics: List[str],
+        add_config: Optional[Dict[str, str]] = None,
+    ):
+        """Init.
+
+        :arg brokers: List of ``host:port`` strings of Kafka brokers.
+
+        :arg topics: List of topics to produce to.
+
+        :arg add_config: Any additional configuration properties.  See
+            the `rdkafka documentation
+            <https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md>`_
+            for options.
+
+        """
+        if isinstance(brokers, str):
+            msg = "brokers must be an iterable and not a string"
+            raise TypeError(msg)
+        if isinstance(topics, str):
+            msg = "topics must be an iterable and not a string"
+            raise TypeError(msg)
+
+        self._brokers = list(brokers)
+        self._topics = list(topics)
+        self._add_config: Dict[str, str] = (
+            {} if add_config is None else dict(add_config)
+        )
+
+        # Discover partition layout for multi-topic routing.
+        admin_config = {"bootstrap.servers": ",".join(self._brokers)}
+        admin_config.update(self._add_config)
+        admin_config.pop("group.id", None)
+        client = AdminClient(admin_config)
+        client.poll(0)
+        self._parts: List[str] = list(_list_parts(client, self._topics))
+
+        # Build topic → (offset_in_parts_list, partition_count) for part_fn.
+        self._topic_ranges: Dict[str, Tuple[int, int]] = {}
+        offset = 0
+        for topic in self._topics:
+            count = sum(1 for p in self._parts if p.endswith(f"-{topic}"))
+            self._topic_ranges[topic] = (offset, count)
+            offset += count
+
+    def list_parts(self) -> List[str]:
+        """See ABC docstring."""
+        return self._parts
+
+    def part_fn(self, item_key: str) -> int:
+        """Route items to the correct topic partition.
+
+        Expects ``item_key`` in the format ``"topic:message_key"``.
+        """
+        topic, _, msg_key = item_key.partition(":")
+        if topic not in self._topic_ranges:
+            msg = f"Unknown topic '{topic}', expected one of {list(self._topic_ranges)}"
+            raise ValueError(msg)
+        offset, count = self._topic_ranges[topic]
+        return offset + (adler32(msg_key.encode()) % count)
+
+    def build_part(
+        self,
+        step_id: str,
+        for_part: str,
+        resume_state: Optional[int],
+    ) -> _StatefulKafkaSinkPartition:
+        """See ABC docstring."""
+        config: Dict[str, str] = {
+            "bootstrap.servers": ",".join(self._brokers),
+            "enable.idempotence": "true",
+        }
+        config.update(self._add_config)
+        config.pop("group.id", None)
+        config["error_cb"] = lambda err: logger.error(
+            "StatefulKafkaSink librdkafka error: %s", err
+        )
+        # Parse "0-topicname" → topic name.
+        _, _, topic = for_part.partition("-")
+        producer = Producer(config)
+        return _StatefulKafkaSinkPartition(producer, topic, resume_state)
