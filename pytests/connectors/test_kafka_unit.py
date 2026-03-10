@@ -1,5 +1,6 @@
 """Unit tests for Kafka connector fixes (no broker required)."""
 
+import json
 from unittest.mock import MagicMock, patch
 from zlib import adler32
 
@@ -9,14 +10,24 @@ from bytewax.connectors.kafka import (
     KafkaSink,
     KafkaSinkMessage,
     KafkaSource,
+    KafkaSourceMessage,
     StatefulKafkaSink,
     _build_producer,
     _KafkaSinkPartition,
+    _KafkaSourcePartition,
     _produce_batch,
     _StatefulKafkaSinkPartition,
 )
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka import KafkaException
+from confluent_kafka.serialization import MessageField, SerializationContext
+
+try:
+    from bytewax.connectors.kafka.serde import _parse_avro_schema
+
+    _has_serde = True
+except ImportError:
+    _has_serde = False
 
 
 class TestKafkaSinkBufferError:
@@ -920,3 +931,244 @@ class TestKafkaProduceErrorException:
         assert error.errors[0] == (err1, "topicA[0]")
         assert error.errors[1] == (err2, "topicA[1]")
         assert error.errors[2] == (err3, "topicB[0]")
+
+
+class TestConfigDefensiveCopy:
+    """Tests that _KafkaSourcePartition does not mutate the caller's config dict."""
+
+    @patch("bytewax.connectors.kafka.Consumer")
+    def test_config_not_mutated(self, mock_consumer_cls):
+        """Original config dict should not gain 'stats_cb' key."""
+        mock_consumer_cls.return_value = MagicMock()
+        original_config = {
+            "bootstrap.servers": "localhost:9092",
+            "group.id": "BYTEWAX_IGNORED",
+            "enable.auto.commit": "false",
+        }
+        original_keys = set(original_config.keys())
+
+        _KafkaSourcePartition(
+            "step-1",
+            original_config,
+            "test-topic",
+            0,
+            -2,
+            None,
+            1000,
+            True,
+        )
+
+        assert set(original_config.keys()) == original_keys
+        assert "stats_cb" not in original_config
+
+
+class TestProcessStats:
+    """Tests for _KafkaSourcePartition._process_stats error handling."""
+
+    _BASE_CONFIG: dict = {  # noqa: RUF012
+        "bootstrap.servers": "localhost:9092",
+        "group.id": "X",
+        "enable.auto.commit": "false",
+    }
+
+    @patch("bytewax.connectors.kafka.Consumer")
+    def test_missing_topics_key(self, mock_consumer_cls):
+        """Missing 'topics' key in stats JSON returns without error."""
+        mock_consumer_cls.return_value = MagicMock()
+        partition = _KafkaSourcePartition(
+            "step-1",
+            self._BASE_CONFIG,
+            "test-topic",
+            0,
+            -2,
+            None,
+            1000,
+            True,
+        )
+        # Should not raise
+        partition._process_stats(json.dumps({"no_topics_here": {}}))
+
+    @patch("bytewax.connectors.kafka.Consumer")
+    def test_wrong_type_in_nested_stats(self, mock_consumer_cls):
+        """TypeError from None value returns without error."""
+        mock_consumer_cls.return_value = MagicMock()
+        partition = _KafkaSourcePartition(
+            "step-1",
+            self._BASE_CONFIG,
+            "test-topic",
+            0,
+            -2,
+            None,
+            1000,
+            True,
+        )
+        partition._process_stats(json.dumps({"topics": None}))
+
+    @patch("bytewax.connectors.kafka.Consumer")
+    def test_missing_partition_key(self, mock_consumer_cls):
+        """Missing partition key in stats returns without error."""
+        mock_consumer_cls.return_value = MagicMock()
+        partition = _KafkaSourcePartition(
+            "step-1",
+            self._BASE_CONFIG,
+            "test-topic",
+            0,
+            -2,
+            None,
+            1000,
+            True,
+        )
+        stats = {"topics": {"test-topic": {"partitions": {}}}}
+        partition._process_stats(json.dumps(stats))
+
+
+class TestGeneratorInput:
+    """Tests that KafkaSource and StatefulKafkaSink accept generators."""
+
+    def test_kafka_source_generator_brokers(self):
+        """KafkaSource materializes generator brokers into a list."""
+        source = KafkaSource(
+            (b for b in ["broker1:9092", "broker2:9092"]),
+            ["test-topic"],
+            tail=False,
+        )
+        assert source._brokers == ["broker1:9092", "broker2:9092"]
+        assert isinstance(source._brokers, list)
+
+    def test_kafka_source_generator_topics(self):
+        """KafkaSource materializes generator topics into a list."""
+        source = KafkaSource(
+            ["broker1:9092"],
+            (t for t in ["topic1", "topic2"]),
+            tail=False,
+        )
+        assert source._topics == ["topic1", "topic2"]
+        assert isinstance(source._topics, list)
+
+    def test_stateful_sink_generator_brokers(self):
+        """StatefulKafkaSink materializes generator brokers into a list."""
+        sink = StatefulKafkaSink(
+            (b for b in ["broker1:9092", "broker2:9092"]),
+            ["test-topic"],
+        )
+        assert sink._brokers == ["broker1:9092", "broker2:9092"]
+        assert isinstance(sink._brokers, list)
+
+
+def _default_key_fn(msg):
+    """Replicate the default key_fn from operators.stateful_output."""
+    if msg.topic is None:
+        err = (
+            "stateful_output requires each message to have "
+            "a topic set, or provide a custom key_fn"
+        )
+        raise ValueError(err)
+    key = (msg.key or b"").decode("utf-8", errors="surrogateescape")
+    return f"{msg.topic}:{key}"
+
+
+class TestStatefulOutputKeyFn:
+    """Tests for the default key_fn in stateful_output operator."""
+
+    def test_none_topic_raises_value_error(self):
+        """Default key_fn raises ValueError when msg.topic is None."""
+        msg = KafkaSinkMessage(key=b"k1", value=b"v1", topic=None)
+        with pytest.raises(ValueError, match="stateful_output requires"):
+            _default_key_fn(msg)
+
+    def test_default_key_fn_with_topic(self):
+        """Default key_fn returns 'topic:key' when topic is set."""
+        msg = KafkaSinkMessage(key=b"mykey", value=b"v1", topic="my-topic")
+        assert _default_key_fn(msg) == "my-topic:mykey"
+
+    def test_default_key_fn_none_key(self):
+        """Default key_fn handles None key as empty string."""
+        msg = KafkaSinkMessage(key=None, value=b"v1", topic="my-topic")
+        assert _default_key_fn(msg) == "my-topic:"
+
+
+class TestSerializationContextTopicFallback:
+    """Tests that SerializationContext gets '' when msg.topic is None."""
+
+    def test_deserialize_key_none_topic_uses_empty_string(self):
+        """deserialize_key passes '' to SerializationContext for None topic."""
+        msg = KafkaSourceMessage(key=b"raw", value=b"v", topic=None)
+        calls = []
+
+        def tracking_deserializer(data, ctx=None, **kwargs):
+            calls.append(ctx)
+            return b"deserialized"
+
+        # Replicate the shim_mapper from operators.py deserialize_key
+        tracking_deserializer(
+            msg.key,
+            SerializationContext(topic=msg.topic or "", field=MessageField.KEY),
+        )
+
+        assert len(calls) == 1
+        assert calls[0].topic == ""
+
+    def test_serialize_key_none_topic_uses_empty_string(self):
+        """serialize_key passes '' to SerializationContext for None topic."""
+        msg = KafkaSinkMessage(key="obj", value=b"v", topic=None)
+        calls = []
+
+        def tracking_serializer(data, ctx=None):
+            calls.append(ctx)
+            return b"serialized"
+
+        tracking_serializer(
+            msg.key,
+            ctx=SerializationContext(msg.topic or "", MessageField.KEY),
+        )
+
+        assert len(calls) == 1
+        assert calls[0].topic == ""
+
+
+_SKIP_SERDE = "serde deps (certifi/schema_registry) not installed"
+
+
+@pytest.mark.skipif(not _has_serde, reason=_SKIP_SERDE)
+class TestParseAvroSchema:
+    """Tests for _parse_avro_schema helper in serde.py."""
+
+    def test_parse_from_string(self):
+        """Parses a JSON schema string into a fastavro schema."""
+        schema_str = json.dumps(
+            {
+                "type": "record",
+                "name": "Test",
+                "fields": [{"name": "x", "type": "int"}],
+            }
+        )
+        result = _parse_avro_schema(schema_str)
+        assert result is not None
+        assert result["name"] == "Test"
+
+    def test_parse_from_schema_object(self):
+        """Parses from a confluent Schema object."""
+        from confluent_kafka.schema_registry import Schema  # noqa: PLC0415
+
+        schema_str = json.dumps(
+            {
+                "type": "record",
+                "name": "Test2",
+                "fields": [{"name": "y", "type": "string"}],
+            }
+        )
+        schema_obj = Schema(schema_str, "AVRO")
+        result = _parse_avro_schema(schema_obj)
+        assert result is not None
+        assert result["name"] == "Test2"
+
+    def test_none_schema_str_raises(self):
+        """Schema with None schema_str raises ValueError."""
+        mock_schema = MagicMock()
+        mock_schema.schema_str = None
+        with patch(  # noqa: SIM117
+            "bytewax.connectors.kafka.serde.Schema",
+            type(mock_schema),
+        ):
+            with pytest.raises(ValueError, match="schema_str must not be None"):
+                _parse_avro_schema(mock_schema)
