@@ -18,7 +18,7 @@ kop.output("kafka-out", kafka_input.oks, brokers=[...], topic="...")
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Generic, List, Optional, TypeVar, Union, cast
+from typing import Any, Callable, Dict, Generic, List, Optional, TypeVar, Union, cast
 
 import confluent_kafka
 import confluent_kafka.serialization
@@ -36,6 +36,7 @@ from bytewax.connectors.kafka import (
     KafkaSinkMessage,
     KafkaSource,
     KafkaSourceMessage,
+    StatefulKafkaSink,
     V,
 )
 from bytewax.dataflow import Dataflow, Stream, operator
@@ -223,7 +224,8 @@ def deserialize_key(
     ) -> Union[KafkaSourceMessage[object, V], KafkaError[Optional[bytes], V]]:
         try:
             key = deserializer(
-                msg.key, SerializationContext(topic=msg.topic, field=MessageField.KEY)
+                msg.key,
+                SerializationContext(topic=msg.topic or "", field=MessageField.KEY),
             )
             return msg._with_key(key)
         except Exception as e:
@@ -257,7 +259,7 @@ def deserialize_value(
     ) -> Union[KafkaSourceMessage[K, object], KafkaError[K, Optional[bytes]]]:
         try:
             value = deserializer(
-                msg.value, ctx=SerializationContext(msg.topic, MessageField.VALUE)
+                msg.value, ctx=SerializationContext(msg.topic or "", MessageField.VALUE)
             )
             return msg._with_value(value)
         except Exception as e:
@@ -307,7 +309,7 @@ def deserialize(
     ]:
         try:
             key = key_deserializer(
-                msg.key, ctx=SerializationContext(msg.topic, MessageField.KEY)
+                msg.key, ctx=SerializationContext(msg.topic or "", MessageField.KEY)
             )
         except Exception as e:
             err = ConfluentKafkaError(ConfluentKafkaError._KEY_DESERIALIZATION, f"{e}")
@@ -315,7 +317,7 @@ def deserialize(
 
         try:
             value = val_deserializer(
-                msg.value, ctx=SerializationContext(msg.topic, MessageField.VALUE)
+                msg.value, ctx=SerializationContext(msg.topic or "", MessageField.VALUE)
             )
         except Exception as e:
             err = ConfluentKafkaError(
@@ -352,7 +354,10 @@ def serialize_key(
     """
 
     def shim_mapper(msg: KafkaSinkMessage[Any, V]) -> KafkaSinkMessage[bytes, V]:
-        key = serializer(msg.key, ctx=SerializationContext(msg.topic, MessageField.KEY))
+        key = serializer(
+            msg.key,
+            ctx=SerializationContext(msg.topic or "", MessageField.KEY),
+        )
         if key is None:
             msg_err = "key serializer returned None"
             raise RuntimeError(msg_err)
@@ -386,7 +391,7 @@ def serialize_value(
 
     def shim_mapper(msg: KafkaSinkMessage[K, Any]) -> KafkaSinkMessage[K, bytes]:
         value = serializer(
-            msg.value, ctx=SerializationContext(msg.topic, MessageField.VALUE)
+            msg.value, ctx=SerializationContext(msg.topic or "", MessageField.VALUE)
         )
         if value is None:
             msg_err = "value serializer returned None"
@@ -427,13 +432,13 @@ def serialize(
         msg: KafkaSinkMessage[Any, Any],
     ) -> KafkaSinkMessage[bytes, bytes]:
         key = key_serializer(
-            msg.key, ctx=SerializationContext(msg.topic, MessageField.KEY)
+            msg.key, ctx=SerializationContext(msg.topic or "", MessageField.KEY)
         )
         if key is None:
             msg_err = "key serializer returned None"
             raise RuntimeError(msg_err)
         value = val_serializer(
-            msg.value, ctx=SerializationContext(msg.topic, MessageField.VALUE)
+            msg.value, ctx=SerializationContext(msg.topic or "", MessageField.VALUE)
         )
         if value is None:
             msg_err = "value serializer returned None"
@@ -441,3 +446,77 @@ def serialize(
         return msg._with_key_and_value(key, value)
 
     return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
+
+
+@operator
+def stateful_output(
+    step_id: str,
+    up: Stream[
+        Union[
+            KafkaSourceMessage[Optional[bytes], Optional[bytes]],
+            KafkaSinkMessage[Optional[bytes], Optional[bytes]],
+        ]
+    ],
+    *,
+    brokers: List[str],
+    topics: List[str],
+    add_config: Optional[Dict[str, str]] = None,
+    key_fn: Optional[
+        Callable[[KafkaSinkMessage[Optional[bytes], Optional[bytes]]], str]
+    ] = None,
+    producer_pool_size: Optional[int] = 1,
+) -> None:
+    """Produce to Kafka as a stateful output sink with recovery support.
+
+    Partitions are the unit of parallelism.  Each Kafka partition is a
+    Bytewax partition that participates in the recovery system's epoch
+    gating.
+
+    Can support at-least-once processing.  Messages from the resume
+    epoch will be duplicated right after resume.
+
+    :arg step_id: Unique ID.
+
+    :arg up: Stream of fully serialized messages.  Key and value must
+        be ``Optional[bytes]``.
+
+    :arg brokers: List of ``host:port`` strings of Kafka brokers.
+
+    :arg topics: List of topics to produce to.
+
+    :arg add_config: Any additional configuration properties.  See the
+        `rdkafka documentation
+        <https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md>`_
+        for options.
+
+    :arg key_fn: Optional function to extract a routing key from each
+        message.  Defaults to ``"topic:message_key"``.
+
+    :arg producer_pool_size: Number of ``Producer`` instances to share
+        across partitions.  Defaults to ``1``.  Set to ``None`` for
+        one producer per partition.
+
+    """
+    sink_msgs = _to_sink("to_sink", up)
+
+    if key_fn is None:
+
+        def key_fn(
+            msg: KafkaSinkMessage[Optional[bytes], Optional[bytes]],
+        ) -> str:
+            if msg.topic is None:
+                err = (
+                    "stateful_output requires each message to have a topic set, "
+                    "or provide a custom key_fn"
+                )
+                raise ValueError(err)
+            key = (msg.key or b"").decode("utf-8", errors="surrogateescape")
+            return f"{msg.topic}:{key}"
+
+    keyed = op.key_on("key_on", sink_msgs, key_fn)
+
+    op.output(
+        "kafka_out",
+        keyed,
+        StatefulKafkaSink(brokers, topics, add_config, producer_pool_size),
+    )

@@ -12,6 +12,20 @@ from fastavro import parse_schema, schemaless_reader, schemaless_writer
 _logger = logging.getLogger(__name__)
 
 
+def _parse_avro_schema(
+    schema: Union[str, Schema], named_schemas: Optional[Dict] = None
+):
+    """Parse an Avro schema string or Schema object into a fastavro schema."""
+    if isinstance(schema, Schema):
+        schema_str = schema.schema_str
+    else:
+        schema_str = schema
+    if schema_str is None:
+        msg = "schema_str must not be None"
+        raise ValueError(msg)
+    return parse_schema(json.loads(schema_str), named_schemas=named_schemas)
+
+
 class PlainAvroSerializer(Serializer):
     """Unframed Avro serializer. Encodes into raw Avro.
 
@@ -37,11 +51,7 @@ class PlainAvroSerializer(Serializer):
             {py:obj}`fastavro._schema_py.parse_schema`.
 
         """
-        if isinstance(schema, Schema):
-            schema_str = schema.schema_str
-        else:
-            schema_str = schema
-        self.schema = parse_schema(json.loads(schema_str), named_schemas=named_schemas)
+        self.schema = _parse_avro_schema(schema, named_schemas)
 
     # TODO: Re-enable once we get type hints for `confluent_kafka`.
     # @override
@@ -83,11 +93,7 @@ class PlainAvroDeserializer(Deserializer):
             {py:obj}`fastavro._schema_py.parse_schema`.
 
         """
-        if isinstance(schema, Schema):
-            schema_str = schema.schema_str
-        else:
-            schema_str = schema
-        self.schema = parse_schema(json.loads(schema_str), named_schemas=named_schemas)
+        self.schema = _parse_avro_schema(schema, named_schemas)
 
     # TODO: Re-enable once we get type hints for `confluent_kafka`.
     # @override

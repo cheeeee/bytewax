@@ -142,6 +142,61 @@ Note that not setting a topic for a
 {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage` when `KafkaSink`
 is not configured with a default topic will result in a runtime error.
 
+## Stateful Output with Recovery
+
+For pipelines that need crash recovery guarantees,
+{py:obj}`~bytewax.connectors.kafka.StatefulKafkaSink` participates in
+Bytewax's recovery system via epoch gating. Each Kafka partition
+becomes a Bytewax partition with state tracking.
+
+The easiest way to use it is via the
+{py:obj}`~bytewax.connectors.kafka.operators.stateful_output`
+operator:
+
+```python
+from bytewax.connectors.kafka import operators as kop
+from bytewax import operators as op
+from bytewax.dataflow import Dataflow
+
+brokers = ["localhost:19092"]
+flow = Dataflow("example")
+kinp = kop.input("kafka-in", flow, brokers=brokers, topics=["in-topic"])
+processed = op.map("map", kinp.oks, lambda x: x.to_sink())
+kop.stateful_output(
+    "kafka-out",
+    processed,
+    brokers=brokers,
+    topics=["out-topic"],
+)
+```
+
+This supports writing to multiple topics — set the `topic` field on
+each {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage` and list
+all target topics:
+
+```python
+kop.stateful_output(
+    "kafka-out",
+    processed,
+    brokers=brokers,
+    topics=["out-topic-1", "out-topic-2"],
+)
+```
+
+Messages are routed to the correct Kafka partition based on their
+topic and key. You can customize routing with the `key_fn` parameter.
+
+### Delivery Error Detection
+
+Both {py:obj}`~bytewax.connectors.kafka.KafkaSink` and
+{py:obj}`~bytewax.connectors.kafka.StatefulKafkaSink` use delivery
+callbacks to detect produce failures. If any message fails delivery, a
+{py:obj}`~bytewax.connectors.kafka.KafkaProduceError` is raised with
+details about the failed deliveries.
+
+Both sinks also enable idempotent producing by default to prevent
+duplicate messages from librdkafka internal retries.
+
 ## Kafka and Recovery
 
 Typical deployments of Kafka utilize [consumer groups](
