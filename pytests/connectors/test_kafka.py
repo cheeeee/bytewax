@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import uuid
 from concurrent.futures import wait
 from typing import Tuple
@@ -57,6 +58,12 @@ def tmp_topic(request):
         # 3 partitions.
         client.create_topics([NewTopic(topic_name, 3)], operation_timeout=5.0).values()
     )
+    # Wait for topic metadata to propagate.
+    for _ in range(10):
+        md = client.list_topics(topic_name, timeout=5.0)
+        if topic_name in md.topics and md.topics[topic_name].error is None:
+            break
+        time.sleep(0.5)
     yield topic_name
     wait(client.delete_topics([topic_name], operation_timeout=5.0).values())
 
