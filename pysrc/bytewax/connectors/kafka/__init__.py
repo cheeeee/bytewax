@@ -43,7 +43,18 @@ kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
+from typing import (
+    Any,
+    Dict,
+    Generic,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+    cast,
+)
 from zlib import adler32
 
 from confluent_kafka import (
@@ -226,8 +237,9 @@ class _KafkaSourcePartition(
         raise_on_errors: bool,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
-        # Collect metrics from Kafka every 1s
-        config.update({"stats_cb": self._process_stats})
+        # Collect metrics from Kafka every 1s.
+        # Defensive copy to avoid mutating the caller's dict.
+        config = {**config, "stats_cb": self._process_stats}
         consumer = Consumer(config)
         # Assign does not activate consumer grouping.
         consumer.assign([TopicPartition(topic, part_idx, self._offset)])
@@ -253,9 +265,13 @@ class _KafkaSourcePartition(
         For more information about the `json_stats` payload, see
         https://github.com/confluentinc/librdkafka/blob/master/STATISTICS.md
         """
-        partition_stats = json.loads(json_stats)["topics"][self._topic]["partitions"][
-            str(self._part_idx)
-        ]
+        try:
+            stats = json.loads(json_stats)
+            partition_stats = stats["topics"][self._topic]["partitions"][
+                str(self._part_idx)
+            ]
+        except (KeyError, TypeError):
+            return
         # The lag value here would be calculated incorrectly when using values
         # like OFFSET_STORED, or OFFSET_BEGINNING
         if self._offset > 0:
@@ -300,9 +316,11 @@ class _KafkaSourcePartition(
                     )
                     raise RuntimeError(err_msg)
 
-            headers = msg.headers()
-            if headers is None:
-                headers = []
+            raw_headers = msg.headers()
+            headers = cast(
+                "List[Tuple[str, bytes]]",
+                raw_headers if raw_headers is not None else [],
+            )
             kafka_msg = KafkaSourceMessage(
                 key=msg.key(),
                 value=msg.value(),
@@ -393,11 +411,11 @@ class KafkaSource(
         if isinstance(brokers, str):
             msg = "brokers must be an iterable and not a string"
             raise TypeError(msg)
-        self._brokers = brokers
+        self._brokers = list(brokers)
         if isinstance(topics, str):
             msg = "topics must be an iterable and not a string"
             raise TypeError(msg)
-        self._topics = topics
+        self._topics = list(topics)
         self._tail = tail
         self._starting_offset = starting_offset
         self._add_config = {} if add_config is None else add_config
@@ -406,14 +424,7 @@ class KafkaSource(
 
     def list_parts(self) -> List[str]:
         """Each Kafka partition is an input partition."""
-        config = {
-            "bootstrap.servers": ",".join(self._brokers),
-        }
-        config.update(self._add_config)
-        config.pop("group.id", None)  # AdminClient doesn't use consumer groups
-        client = AdminClient(config)
-        client.poll(0)  # Trigger any pending callbacks (e.g. OAUTHBEARER)
-
+        client = _build_admin_client(self._brokers, self._add_config)
         return list(_list_parts(client, self._topics))
 
     def build_part(
@@ -499,6 +510,39 @@ class KafkaSinkMessage(Generic[K, V]):
         )
 
 
+def _build_admin_client(
+    brokers: Iterable[str],
+    add_config: Dict[str, str],
+) -> AdminClient:
+    """Build a Kafka AdminClient with standard config."""
+    config: Dict[str, Any] = {
+        "bootstrap.servers": ",".join(brokers),
+    }
+    config.update(add_config)
+    config.pop("group.id", None)
+    client = AdminClient(config)
+    client.poll(0)  # Trigger any pending callbacks (e.g. OAUTHBEARER)
+    return client
+
+
+def _build_producer(
+    brokers: Iterable[str],
+    add_config: Dict[str, str],
+    label: str,
+) -> Producer:
+    """Build a Kafka Producer with standard config."""
+    config: Dict[str, str] = {
+        "bootstrap.servers": ",".join(brokers),
+        "enable.idempotence": "true",
+    }
+    config.update(add_config)
+    config.pop("group.id", None)
+    return Producer(
+        config,
+        error_cb=lambda err: logger.error("%s librdkafka error: %s", label, err),
+    )
+
+
 def _produce_batch(
     producer: Producer,
     default_topic: Optional[str],
@@ -510,23 +554,32 @@ def _produce_batch(
     callback, flushes at the end, and raises :class:`KafkaProduceError`
     if any deliveries failed.
     """
+    if not items:
+        return
+
+    # Resolve and validate all topics upfront so we never leave
+    # already-enqueued messages unflushed when a topic is missing.
+    resolved_topics: List[str] = []
+    for msg in items:
+        topic = default_topic if msg.topic is None else msg.topic
+        if topic is None:
+            err = f"No topic to produce to for {msg}"
+            raise RuntimeError(err)
+        resolved_topics.append(topic)
+
     errors: List[Tuple[ConfluentKafkaError, str]] = []
 
     def _on_delivery(err, msg):
         if err is not None:
             errors.append((err, f"{msg.topic()}[{msg.partition()}]"))
 
-    for msg in items:
-        topic = default_topic if msg.topic is None else msg.topic
-        if topic is None:
-            err = f"No topic to produce to for {msg}"
-            raise RuntimeError(err)
-
+    for msg, topic in zip(items, resolved_topics):
+        hdrs = cast("Any", msg.headers)
         try:
             producer.produce(
                 value=msg.value,
                 key=msg.key,
-                headers=msg.headers,
+                headers=hdrs,
                 topic=topic,
                 timestamp=msg.timestamp,
                 on_delivery=_on_delivery,
@@ -536,7 +589,7 @@ def _produce_batch(
             producer.produce(
                 value=msg.value,
                 key=msg.key,
-                headers=msg.headers,
+                headers=hdrs,
                 topic=topic,
                 timestamp=msg.timestamp,
                 on_delivery=_on_delivery,
@@ -544,7 +597,6 @@ def _produce_batch(
         except KafkaException as exc:
             kafka_err = exc.args[0]
             errors.append((kafka_err, topic))
-        producer.poll(0)
     producer.flush()
 
     if errors:
@@ -554,7 +606,7 @@ def _produce_batch(
 class _KafkaSinkPartition(
     StatelessSinkPartition[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]
 ):
-    def __init__(self, producer, topic):
+    def __init__(self, producer: Producer, topic: Optional[str]):
         self._producer = producer
         self._topic = topic
 
@@ -611,17 +663,7 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
         self, _step_id: str, worker_index: int, worker_count: int
     ) -> _KafkaSinkPartition:
         """See ABC docstring."""
-        config = {
-            "bootstrap.servers": ",".join(self._brokers),
-            "enable.idempotence": "true",
-        }
-        config.update(self._add_config)
-        config.pop("group.id", None)  # Producer doesn't use consumer groups
-        producer = Producer(
-            config,
-            error_cb=lambda err: logger.error("KafkaSink librdkafka error: %s", err),
-        )
-
+        producer = _build_producer(self._brokers, self._add_config, "KafkaSink")
         return _KafkaSinkPartition(producer, self._topic)
 
 
@@ -678,17 +720,24 @@ class StatefulKafkaSink(
         brokers: Iterable[str],
         topics: List[str],
         add_config: Optional[Dict[str, str]] = None,
+        producer_pool_size: Optional[int] = 1,
     ):
         """Init.
 
         :arg brokers: List of ``host:port`` strings of Kafka brokers.
 
-        :arg topics: List of topics to produce to.
+        :arg topics: List of topics to produce to.  Topic names must
+            not contain ``":"`` as it is used as the routing key
+            separator.
 
         :arg add_config: Any additional configuration properties.  See
             the `rdkafka documentation
             <https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md>`_
             for options.
+
+        :arg producer_pool_size: Number of ``Producer`` instances to
+            share across partitions.  Defaults to ``1`` (single shared
+            producer).  Set to ``None`` for one producer per partition.
 
         """
         if isinstance(brokers, str):
@@ -697,6 +746,16 @@ class StatefulKafkaSink(
         if isinstance(topics, str):
             msg = "topics must be an iterable and not a string"
             raise TypeError(msg)
+        for t in topics:
+            if ":" in t:
+                msg = (
+                    f"Topic name {t!r} contains ':', which conflicts "
+                    f"with routing key format 'topic:key'"
+                )
+                raise ValueError(msg)
+        if producer_pool_size is not None and producer_pool_size < 1:
+            msg = "producer_pool_size must be >= 1 or None"
+            raise ValueError(msg)
 
         self._brokers = list(brokers)
         self._topics = list(topics)
@@ -706,20 +765,24 @@ class StatefulKafkaSink(
         # Partition layout discovered lazily in list_parts().
         self._parts: Optional[List[str]] = None
         self._topic_ranges: Dict[str, Tuple[int, int]] = {}
+        # Producer pool.
+        self._pool_size = producer_pool_size
+        self._producers: List[Producer] = []
+        self._next_producer_idx: int = 0
 
     def list_parts(self) -> List[str]:
         """See ABC docstring."""
         if self._parts is None:
-            admin_config = {"bootstrap.servers": ",".join(self._brokers)}
-            admin_config.update(self._add_config)
-            admin_config.pop("group.id", None)
-            client = AdminClient(admin_config)
-            client.poll(0)
+            client = _build_admin_client(self._brokers, self._add_config)
             self._parts = list(_list_parts(client, self._topics))
 
+            counts: Dict[str, int] = {}
+            for p in self._parts:
+                t = p.split("-", 1)[1]
+                counts[t] = counts.get(t, 0) + 1
             offset = 0
             for topic in self._topics:
-                count = sum(1 for p in self._parts if p.endswith(f"-{topic}"))
+                count = counts.get(topic, 0)
                 self._topic_ranges[topic] = (offset, count)
                 offset += count
         return self._parts
@@ -729,13 +792,28 @@ class StatefulKafkaSink(
 
         Expects ``item_key`` in the format ``"topic:message_key"``.
         """
-        self.list_parts()  # Ensure partition layout is discovered.
+        if self._parts is None:
+            self.list_parts()
         topic, _, msg_key = item_key.partition(":")
         if topic not in self._topic_ranges:
             msg = f"Unknown topic '{topic}', expected one of {list(self._topic_ranges)}"
             raise ValueError(msg)
         offset, count = self._topic_ranges[topic]
         return offset + (adler32(msg_key.encode()) % count)
+
+    def _get_producer(self) -> Producer:
+        """Return a Producer from the pool, creating if needed."""
+        if self._pool_size is None:
+            return _build_producer(self._brokers, self._add_config, "StatefulKafkaSink")
+
+        if len(self._producers) < self._pool_size:
+            p = _build_producer(self._brokers, self._add_config, "StatefulKafkaSink")
+            self._producers.append(p)
+            return p
+
+        p = self._producers[self._next_producer_idx]
+        self._next_producer_idx = (self._next_producer_idx + 1) % len(self._producers)
+        return p
 
     def build_part(
         self,
@@ -744,18 +822,6 @@ class StatefulKafkaSink(
         resume_state: Optional[int],
     ) -> _StatefulKafkaSinkPartition:
         """See ABC docstring."""
-        config: Dict[str, str] = {
-            "bootstrap.servers": ",".join(self._brokers),
-            "enable.idempotence": "true",
-        }
-        config.update(self._add_config)
-        config.pop("group.id", None)
         # Parse "0-topicname" → topic name.
-        _, _, topic = for_part.partition("-")
-        producer = Producer(
-            config,
-            error_cb=lambda err: logger.error(
-                "StatefulKafkaSink librdkafka error: %s", err
-            ),
-        )
-        return _StatefulKafkaSinkPartition(producer, topic, resume_state)
+        _, topic = for_part.split("-", 1)
+        return _StatefulKafkaSinkPartition(self._get_producer(), topic, resume_state)

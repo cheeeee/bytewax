@@ -49,7 +49,7 @@ def entry_point(entry_point_name):
     elif entry_point_name == "cluster_main-2thread":
         return _wrapped_cluster_main1x2
     else:
-        msg = "unknown entry point name: {request.param!r}"
+        msg = f"unknown entry point name: {entry_point_name!r}"
         raise ValueError(msg)
 
 

@@ -14,15 +14,15 @@ ahash = { version = "0.8" }
 axum = { version = "0.8" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 fastrand = { version = "2" }
-num = { version = "0.4.0" }
+num = { version = "0.4.3" }
 opentelemetry = { version = "0.28", features = ["metrics"] }
 opentelemetry_sdk = { version = "0.28", features = ["metrics", "rt-tokio", "spec_unstable_metrics_views"] }
 opentelemetry-otlp = { version = "0.28", features = ["trace", "grpc-tonic"] }
 opentelemetry-prometheus = { version = "0.28" }
 prometheus = { version = "0.13.3" }
 pyo3 = { version = "0.28", features = [ "macros", "chrono", "py-clone"] }
-rusqlite = { version = "0.32", features = ["bundled", "series"] }
-rusqlite_migration = { version = "1.3" }
+rusqlite = { version = "0.38", features = ["bundled", "series", "fallible_uint"] }
+rusqlite_migration = { version = "2.4" }
 seahash = { version = "4.1.0" }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0" }
@@ -33,7 +33,7 @@ tracing-opentelemetry = { version = "0.29" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 pyo3 = { version = "0.28", features = ["macros", "chrono", "py-clone"] }
 serde_test = { version = "1.0" }
 

@@ -173,29 +173,7 @@ def test_output(tmp_topic):
 
     run_main(flow)
 
-    group_config = config.copy()
-    group_config["group.id"] = "BYTEWAX_UNIT_TEST"
-    # Don't leave around a consumer group for this.
-    group_config["enable.auto.commit"] = "false"
-    group_config["enable.partition.eof"] = "true"
-    consumer = Consumer(group_config)
-    cluster_metadata = consumer.list_topics(tmp_topic)
-    topic_metadata = cluster_metadata.topics[tmp_topic]
-    # Assign does not activate consumer grouping.
-    consumer.assign(
-        [
-            TopicPartition(tmp_topic, i, OFFSET_BEGINNING)
-            for i in topic_metadata.partitions
-        ]
-    )
-    out = []
-    for msg in consumer.consume(num_messages=100, timeout=5.0):
-        if msg.error() is not None and msg.error().code() == KafkaError._PARTITION_EOF:
-            continue
-        assert msg.error() is None
-        out.append((msg.key(), msg.value()))
-    consumer.close()
-
+    out = _consume_topic(tmp_topic, len(inp))
     assert sorted(out) == sorted(list(map(as_k_v, inp)))
 
 
@@ -444,7 +422,8 @@ def test_stateful_output_custom_key_fn(tmp_topic):
     s = op.input("inp", flow, TestingSource(inp))
 
     def custom_key(msg):
-        return f"{msg.topic}:{msg.value or b''}"
+        val = (msg.value or b"").decode("utf-8", errors="surrogateescape")
+        return f"{msg.topic}:{val}"
 
     kop.stateful_output(
         "kafka_out",

@@ -10,6 +10,7 @@ from bytewax.connectors.kafka import (
     KafkaSinkMessage,
     KafkaSource,
     StatefulKafkaSink,
+    _build_producer,
     _KafkaSinkPartition,
     _produce_batch,
     _StatefulKafkaSinkPartition,
@@ -33,7 +34,6 @@ class TestKafkaSinkBufferError:
         partition.write_batch(msgs)
 
         assert producer.produce.call_count == 2
-        assert producer.poll.call_count == 2
         producer.flush.assert_called()
 
     def test_write_batch_buffer_error_retry(self):
@@ -67,7 +67,6 @@ class TestKafkaSinkBufferError:
 
         # 3 initial + 1 retry = 4
         assert producer.produce.call_count == 4
-        assert producer.poll.call_count == 3
 
     def test_write_batch_with_explicit_topic(self):
         """Messages with explicit topic override default."""
@@ -220,30 +219,42 @@ class TestKafkaGroupIdLeak:
         assert created_config["linger.ms"] == "100"
 
 
+def _make_mock_producer(
+    *, delivery_error=None, delivery_topic="test-topic", delivery_partition=0
+):
+    """Create a mock Producer with callback-capture for _produce_batch tests.
+
+    On flush, triggers all captured on_delivery callbacks with the given
+    ``delivery_error`` (None for success) and a mock Message whose
+    ``.topic()`` / ``.partition()`` return ``delivery_topic`` / ``delivery_partition``.
+    """
+    producer = MagicMock()
+    callbacks = []
+
+    def mock_produce(**kwargs):
+        if "on_delivery" in kwargs:
+            callbacks.append(kwargs["on_delivery"])
+
+    producer.produce = MagicMock(side_effect=mock_produce)
+
+    def mock_flush():
+        mock_msg = MagicMock()
+        mock_msg.topic.return_value = delivery_topic
+        mock_msg.partition.return_value = delivery_partition
+        for cb in callbacks:
+            cb(delivery_error, mock_msg)
+        callbacks.clear()
+
+    producer.flush = MagicMock(side_effect=mock_flush)
+    return producer
+
+
 class TestDeliveryCallbacks:
     """Tests for _produce_batch delivery callback error tracking."""
 
     def test_produce_batch_success(self):
         """All deliveries succeed — no exception raised."""
-        producer = MagicMock()
-        callbacks = []
-
-        def mock_produce(**kwargs):
-            if "on_delivery" in kwargs:
-                callbacks.append(kwargs["on_delivery"])
-
-        producer.produce = MagicMock(side_effect=mock_produce)
-
-        # When flush is called, trigger all callbacks with no error
-        def mock_flush():
-            mock_msg = MagicMock()
-            mock_msg.topic.return_value = "test-topic"
-            mock_msg.partition.return_value = 0
-            for cb in callbacks:
-                cb(None, mock_msg)
-            callbacks.clear()
-
-        producer.flush = MagicMock(side_effect=mock_flush)
+        producer = _make_mock_producer()
 
         msgs = [
             KafkaSinkMessage(key=b"k1", value=b"v1"),
@@ -257,27 +268,9 @@ class TestDeliveryCallbacks:
 
     def test_produce_batch_delivery_error(self):
         """A delivery error triggers KafkaProduceError."""
-        producer = MagicMock()
-        callbacks = []
-
-        def mock_produce(**kwargs):
-            if "on_delivery" in kwargs:
-                callbacks.append(kwargs["on_delivery"])
-
-        producer.produce = MagicMock(side_effect=mock_produce)
-
         mock_error = MagicMock()
         mock_error.__str__ = lambda self: "MSG_TIMED_OUT"
-
-        def mock_flush():
-            mock_msg = MagicMock()
-            mock_msg.topic.return_value = "test-topic"
-            mock_msg.partition.return_value = 0
-            for cb in callbacks:
-                cb(mock_error, mock_msg)
-            callbacks.clear()
-
-        producer.flush = MagicMock(side_effect=mock_flush)
+        producer = _make_mock_producer(delivery_error=mock_error)
 
         msgs = [KafkaSinkMessage(key=b"k1", value=b"v1")]
         with pytest.raises(KafkaProduceError) as exc_info:
@@ -373,25 +366,7 @@ class TestDeliveryCallbacks:
 
     def test_write_batch_uses_produce_batch(self):
         """write_batch() delegates to _produce_batch with callbacks."""
-        producer = MagicMock()
-        callbacks = []
-
-        def mock_produce(**kwargs):
-            if "on_delivery" in kwargs:
-                callbacks.append(kwargs["on_delivery"])
-
-        producer.produce = MagicMock(side_effect=mock_produce)
-
-        def mock_flush():
-            mock_msg = MagicMock()
-            mock_msg.topic.return_value = "test-topic"
-            mock_msg.partition.return_value = 0
-            for cb in callbacks:
-                cb(None, mock_msg)
-            callbacks.clear()
-
-        producer.flush = MagicMock(side_effect=mock_flush)
-
+        producer = _make_mock_producer()
         partition = _KafkaSinkPartition(producer, "test-topic")
 
         msgs = [
@@ -433,6 +408,23 @@ class TestDeliveryCallbacks:
         assert producer.produce.call_count == 2
         assert len(exc_info.value.errors) == 1
 
+    def test_produce_batch_empty_list(self):
+        """Empty items list returns immediately without any calls."""
+        producer = MagicMock()
+        _produce_batch(producer, "test-topic", [])
+        producer.produce.assert_not_called()
+        producer.flush.assert_not_called()
+
+    def test_produce_batch_explicit_topic_override(self):
+        """Message topic overrides default_topic."""
+        producer = _make_mock_producer(delivery_topic="custom-topic")
+
+        msgs = [KafkaSinkMessage(key=b"k1", value=b"v1", topic="custom-topic")]
+        _produce_batch(producer, "default-topic", msgs)
+
+        call_kwargs = producer.produce.call_args.kwargs
+        assert call_kwargs["topic"] == "custom-topic"
+
 
 class TestStatefulKafkaSinkPartition:
     """Tests for _StatefulKafkaSinkPartition snapshot and state tracking."""
@@ -448,25 +440,7 @@ class TestStatefulKafkaSinkPartition:
 
     def test_snapshot_after_writes(self):
         """Snapshot reflects the number of messages written."""
-        producer = MagicMock()
-        callbacks = []
-
-        def mock_produce(**kwargs):
-            if "on_delivery" in kwargs:
-                callbacks.append(kwargs["on_delivery"])
-
-        producer.produce = MagicMock(side_effect=mock_produce)
-
-        def mock_flush():
-            mock_msg = MagicMock()
-            mock_msg.topic.return_value = "test-topic"
-            mock_msg.partition.return_value = 0
-            for cb in callbacks:
-                cb(None, mock_msg)
-            callbacks.clear()
-
-        producer.flush = MagicMock(side_effect=mock_flush)
-
+        producer = _make_mock_producer()
         partition = _StatefulKafkaSinkPartition(
             producer, "test-topic", resume_state=None
         )
@@ -482,25 +456,7 @@ class TestStatefulKafkaSinkPartition:
 
     def test_snapshot_after_resume(self):
         """Snapshot accumulates on top of the resume state."""
-        producer = MagicMock()
-        callbacks = []
-
-        def mock_produce(**kwargs):
-            if "on_delivery" in kwargs:
-                callbacks.append(kwargs["on_delivery"])
-
-        producer.produce = MagicMock(side_effect=mock_produce)
-
-        def mock_flush():
-            mock_msg = MagicMock()
-            mock_msg.topic.return_value = "test-topic"
-            mock_msg.partition.return_value = 0
-            for cb in callbacks:
-                cb(None, mock_msg)
-            callbacks.clear()
-
-        producer.flush = MagicMock(side_effect=mock_flush)
-
+        producer = _make_mock_producer()
         partition = _StatefulKafkaSinkPartition(producer, "test-topic", resume_state=42)
 
         msgs = [
@@ -656,33 +612,38 @@ class TestStatefulKafkaSink:
         with pytest.raises(ValueError, match="Unknown topic"):
             sink.part_fn("unknownTopic:key1")
 
-    @patch("bytewax.connectors.kafka.Producer")
+    def test_raises_on_colon_in_topic(self):
+        """Topic names containing ':' raise ValueError."""
+        with pytest.raises(ValueError, match="contains ':'"):
+            StatefulKafkaSink(["localhost:9092"], ["prod:events"])
+
+    @patch("bytewax.connectors.kafka._build_producer")
     @patch("bytewax.connectors.kafka._list_parts")
     @patch("bytewax.connectors.kafka.AdminClient")
     def test_build_part_creates_partition(
-        self, mock_admin_cls, mock_list_parts, mock_producer_cls
+        self, mock_admin_cls, mock_list_parts, mock_build_producer
     ):
         """build_part() returns _StatefulKafkaSinkPartition."""
         mock_admin_cls.return_value = MagicMock()
         mock_list_parts.return_value = ["0-topicA", "1-topicA"]
-        mock_producer_cls.return_value = MagicMock()
+        mock_build_producer.return_value = MagicMock()
 
         sink = StatefulKafkaSink(["localhost:9092"], ["topicA"])
         part = sink.build_part("step-1", "0-topicA", None)
 
         assert isinstance(part, _StatefulKafkaSinkPartition)
-        mock_producer_cls.assert_called_once()
+        mock_build_producer.assert_called_once()
 
-    @patch("bytewax.connectors.kafka.Producer")
+    @patch("bytewax.connectors.kafka._build_producer")
     @patch("bytewax.connectors.kafka._list_parts")
     @patch("bytewax.connectors.kafka.AdminClient")
     def test_build_part_strips_group_id(
-        self, mock_admin_cls, mock_list_parts, mock_producer_cls
+        self, mock_admin_cls, mock_list_parts, mock_build_producer
     ):
-        """group.id is stripped from the Producer config."""
+        """group.id is stripped from the Producer config via _build_producer."""
         mock_admin_cls.return_value = MagicMock()
         mock_list_parts.return_value = ["0-topicA"]
-        mock_producer_cls.return_value = MagicMock()
+        mock_build_producer.return_value = MagicMock()
 
         sink = StatefulKafkaSink(
             ["localhost:9092"],
@@ -691,55 +652,54 @@ class TestStatefulKafkaSink:
         )
         sink.build_part("step-1", "0-topicA", None)
 
-        created_config = mock_producer_cls.call_args[0][0]
-        assert "group.id" not in created_config
-        assert created_config["linger.ms"] == "50"
+        call_args = mock_build_producer.call_args
+        passed_add_config = call_args[0][1]
+        assert passed_add_config["group.id"] == "my-group"
+        assert passed_add_config["linger.ms"] == "50"
 
-    @patch("bytewax.connectors.kafka.Producer")
+    @patch("bytewax.connectors.kafka._build_producer")
     @patch("bytewax.connectors.kafka._list_parts")
     @patch("bytewax.connectors.kafka.AdminClient")
     def test_build_part_enables_idempotence(
-        self, mock_admin_cls, mock_list_parts, mock_producer_cls
+        self, mock_admin_cls, mock_list_parts, mock_build_producer
     ):
-        """enable.idempotence is set to 'true' in Producer config."""
+        """_build_producer is called (which sets enable.idempotence)."""
         mock_admin_cls.return_value = MagicMock()
         mock_list_parts.return_value = ["0-topicA"]
-        mock_producer_cls.return_value = MagicMock()
+        mock_build_producer.return_value = MagicMock()
 
         sink = StatefulKafkaSink(["localhost:9092"], ["topicA"])
         sink.build_part("step-1", "0-topicA", None)
 
-        created_config = mock_producer_cls.call_args[0][0]
-        assert created_config["enable.idempotence"] == "true"
+        mock_build_producer.assert_called_once()
 
-    @patch("bytewax.connectors.kafka.Producer")
+    @patch("bytewax.connectors.kafka._build_producer")
     @patch("bytewax.connectors.kafka._list_parts")
     @patch("bytewax.connectors.kafka.AdminClient")
     def test_build_part_sets_error_cb(
-        self, mock_admin_cls, mock_list_parts, mock_producer_cls
+        self, mock_admin_cls, mock_list_parts, mock_build_producer
     ):
-        """build_part() passes error_cb as a keyword arg to Producer."""
+        """build_part() delegates to _build_producer which sets error_cb."""
         mock_admin_cls.return_value = MagicMock()
         mock_list_parts.return_value = ["0-topicA"]
-        mock_producer_cls.return_value = MagicMock()
+        mock_build_producer.return_value = MagicMock()
 
         sink = StatefulKafkaSink(["localhost:9092"], ["topicA"])
         sink.build_part("step-1", "0-topicA", None)
 
-        call_kwargs = mock_producer_cls.call_args.kwargs
-        assert "error_cb" in call_kwargs
-        assert callable(call_kwargs["error_cb"])
+        mock_build_producer.assert_called_once()
+        assert mock_build_producer.call_args[0][2] == "StatefulKafkaSink"
 
-    @patch("bytewax.connectors.kafka.Producer")
+    @patch("bytewax.connectors.kafka._build_producer")
     @patch("bytewax.connectors.kafka._list_parts")
     @patch("bytewax.connectors.kafka.AdminClient")
     def test_build_part_with_resume_state(
-        self, mock_admin_cls, mock_list_parts, mock_producer_cls
+        self, mock_admin_cls, mock_list_parts, mock_build_producer
     ):
         """Resume state forwarded to partition, in snapshot()."""
         mock_admin_cls.return_value = MagicMock()
         mock_list_parts.return_value = ["0-topicA"]
-        mock_producer_cls.return_value = MagicMock()
+        mock_build_producer.return_value = MagicMock()
 
         sink = StatefulKafkaSink(["localhost:9092"], ["topicA"])
         part = sink.build_part("step-1", "0-topicA", 99)
@@ -747,32 +707,186 @@ class TestStatefulKafkaSink:
         assert isinstance(part, _StatefulKafkaSinkPartition)
         assert part.snapshot() == 99
 
+    @patch("bytewax.connectors.kafka._build_producer")
+    @patch("bytewax.connectors.kafka._list_parts")
+    @patch("bytewax.connectors.kafka.AdminClient")
+    def test_producer_pool_shared(
+        self, mock_admin_cls, mock_list_parts, mock_build_producer
+    ):
+        """Default pool_size=1: single Producer shared across build_part calls."""
+        mock_admin_cls.return_value = MagicMock()
+        mock_list_parts.return_value = ["0-topicA", "1-topicA"]
+        mock_build_producer.return_value = MagicMock()
+
+        sink = StatefulKafkaSink(["localhost:9092"], ["topicA"])
+        sink.build_part("step-1", "0-topicA", None)
+        sink.build_part("step-1", "1-topicA", None)
+
+        mock_build_producer.assert_called_once()
+
+    @patch("bytewax.connectors.kafka._build_producer")
+    @patch("bytewax.connectors.kafka._list_parts")
+    @patch("bytewax.connectors.kafka.AdminClient")
+    def test_producer_pool_per_partition(
+        self, mock_admin_cls, mock_list_parts, mock_build_producer
+    ):
+        """pool_size=None: one Producer per partition."""
+        mock_admin_cls.return_value = MagicMock()
+        mock_list_parts.return_value = ["0-topicA", "1-topicA"]
+        mock_build_producer.return_value = MagicMock()
+
+        sink = StatefulKafkaSink(
+            ["localhost:9092"], ["topicA"], producer_pool_size=None
+        )
+        sink.build_part("step-1", "0-topicA", None)
+        sink.build_part("step-1", "1-topicA", None)
+
+        assert mock_build_producer.call_count == 2
+
+    @patch("bytewax.connectors.kafka._build_producer")
+    @patch("bytewax.connectors.kafka._list_parts")
+    @patch("bytewax.connectors.kafka.AdminClient")
+    def test_producer_pool_size_n(
+        self, mock_admin_cls, mock_list_parts, mock_build_producer
+    ):
+        """pool_size=2: creates 2 Producers, then round-robins."""
+        mock_admin_cls.return_value = MagicMock()
+        mock_list_parts.return_value = ["0-topicA", "1-topicA", "2-topicA"]
+        producers = [MagicMock(), MagicMock()]
+        mock_build_producer.side_effect = producers
+
+        sink = StatefulKafkaSink(["localhost:9092"], ["topicA"], producer_pool_size=2)
+        p0 = sink.build_part("step-1", "0-topicA", None)
+        p1 = sink.build_part("step-1", "1-topicA", None)
+        p2 = sink.build_part("step-1", "2-topicA", None)
+
+        assert mock_build_producer.call_count == 2
+        assert p0._producer is producers[0]
+        assert p1._producer is producers[1]
+        assert p2._producer is producers[0]
+
+    def test_raises_on_pool_size_zero(self):
+        """producer_pool_size=0 raises ValueError."""
+        with pytest.raises(ValueError, match="producer_pool_size must be >= 1"):
+            StatefulKafkaSink(["localhost:9092"], ["topicA"], producer_pool_size=0)
+
+    def test_raises_on_pool_size_negative(self):
+        """producer_pool_size=-1 raises ValueError."""
+        with pytest.raises(ValueError, match="producer_pool_size must be >= 1"):
+            StatefulKafkaSink(["localhost:9092"], ["topicA"], producer_pool_size=-1)
+
+    def test_colon_in_second_topic(self):
+        """Colon validation catches the invalid topic even with a valid first topic."""
+        with pytest.raises(ValueError, match="contains ':'"):
+            StatefulKafkaSink(["localhost:9092"], ["valid-topic", "invalid:topic"])
+
+    @patch("bytewax.connectors.kafka._list_parts")
+    @patch("bytewax.connectors.kafka.AdminClient")
+    def test_list_parts_topic_with_dashes(self, mock_admin_cls, mock_list_parts):
+        """Topic with dashes in name correctly counted via split('-', 1)."""
+        mock_admin_cls.return_value = MagicMock()
+        mock_list_parts.return_value = [
+            "0-my-topic",
+            "1-my-topic",
+            "2-my-topic",
+        ]
+
+        sink = StatefulKafkaSink(["localhost:9092"], ["my-topic"])
+        parts = sink.list_parts()
+
+        assert len(parts) == 3
+        idx = sink.part_fn("my-topic:key1")
+        assert 0 <= idx < 3
+
+    @patch("bytewax.connectors.kafka._list_parts")
+    @patch("bytewax.connectors.kafka.AdminClient")
+    def test_part_fn_empty_key(self, mock_admin_cls, mock_list_parts):
+        """Empty key routes deterministically via adler32(b'')."""
+        mock_admin_cls.return_value = MagicMock()
+        mock_list_parts.return_value = ["0-topicA", "1-topicA", "2-topicA"]
+
+        sink = StatefulKafkaSink(["localhost:9092"], ["topicA"])
+        idx = sink.part_fn("topicA:")
+
+        expected = adler32(b"") % 3
+        assert idx == expected
+
 
 class TestKafkaSinkErrorCb:
-    """Tests for KafkaSink error_cb and idempotence configuration."""
+    """Tests for KafkaSink error_cb and idempotence via _build_producer."""
 
-    @patch("bytewax.connectors.kafka.Producer")
-    def test_kafka_sink_sets_error_cb(self, mock_producer_cls):
-        """KafkaSink.build() passes error_cb as a keyword arg to Producer."""
-        mock_producer_cls.return_value = MagicMock()
+    @patch("bytewax.connectors.kafka._build_producer")
+    def test_kafka_sink_uses_build_producer(self, mock_build_producer):
+        """KafkaSink.build() delegates to _build_producer."""
+        mock_build_producer.return_value = MagicMock()
 
         sink = KafkaSink(["localhost:9092"], "test-topic")
         sink.build("step-1", 0, 1)
+
+        mock_build_producer.assert_called_once()
+        assert mock_build_producer.call_args[0][2] == "KafkaSink"
+
+    @patch("bytewax.connectors.kafka.Producer")
+    def test_build_producer_sets_error_cb(self, mock_producer_cls):
+        """_build_producer passes error_cb as a keyword arg to Producer."""
+        mock_producer_cls.return_value = MagicMock()
+
+        _build_producer(["localhost:9092"], {}, "Test")
 
         call_kwargs = mock_producer_cls.call_args.kwargs
         assert "error_cb" in call_kwargs
         assert callable(call_kwargs["error_cb"])
 
     @patch("bytewax.connectors.kafka.Producer")
-    def test_kafka_sink_enables_idempotence(self, mock_producer_cls):
-        """KafkaSink.build() sets enable.idempotence=true."""
+    def test_build_producer_enables_idempotence(self, mock_producer_cls):
+        """_build_producer sets enable.idempotence=true."""
         mock_producer_cls.return_value = MagicMock()
 
-        sink = KafkaSink(["localhost:9092"], "test-topic")
-        sink.build("step-1", 0, 1)
+        _build_producer(["localhost:9092"], {}, "Test")
 
         created_config = mock_producer_cls.call_args[0][0]
         assert created_config["enable.idempotence"] == "true"
+
+    @patch("bytewax.connectors.kafka.Producer")
+    def test_build_producer_strips_group_id(self, mock_producer_cls):
+        """_build_producer strips group.id from config."""
+        mock_producer_cls.return_value = MagicMock()
+
+        add_config = {
+            "group.id": "my-group",
+            "linger.ms": "50",
+        }
+        _build_producer(["localhost:9092"], add_config, "Test")
+
+        created_config = mock_producer_cls.call_args[0][0]
+        assert "group.id" not in created_config
+        assert created_config["linger.ms"] == "50"
+
+    @patch("bytewax.connectors.kafka.logger")
+    @patch("bytewax.connectors.kafka.Producer")
+    def test_build_producer_error_cb_logs(self, mock_producer_cls, mock_logger):
+        """error_cb triggers logger.error with the label."""
+        mock_producer_cls.return_value = MagicMock()
+
+        _build_producer(["localhost:9092"], {}, "MyLabel")
+
+        call_kwargs = mock_producer_cls.call_args.kwargs
+        error_cb = call_kwargs["error_cb"]
+        mock_err = MagicMock()
+        error_cb(mock_err)
+        mock_logger.error.assert_called_once()
+        assert "MyLabel" in str(mock_logger.error.call_args)
+
+    @patch("bytewax.connectors.kafka.Producer")
+    def test_build_producer_add_config_overrides(self, mock_producer_cls):
+        """add_config can override bootstrap.servers."""
+        mock_producer_cls.return_value = MagicMock()
+
+        add_config = {"bootstrap.servers": "override:9092"}
+        _build_producer(["original:9092"], add_config, "Test")
+
+        created_config = mock_producer_cls.call_args[0][0]
+        assert created_config["bootstrap.servers"] == "override:9092"
 
 
 class TestKafkaProduceErrorException:
