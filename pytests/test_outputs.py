@@ -13,6 +13,5 @@ def test_flow_requires_output():
     op.input("inp", flow, TestingSource(inp))
 
     expect = "at least one output"
-    with raises(RuntimeError):
-        with raises(ValueError, match=re.escape(expect)):
-            run_main(flow)
+    with raises(RuntimeError), raises(ValueError, match=re.escape(expect)):
+        run_main(flow)

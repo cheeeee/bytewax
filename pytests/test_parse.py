@@ -25,11 +25,10 @@ def test_parse_args_environ(tmpdir):
     testenv["BYTEWAX_POD_NAME"] = "stateful_set-0"
     testenv["BYTEWAX_STATEFULSET_NAME"] = "stateful_set"
     # Mock sys.argv to test that the parsing phase works well
-    with patch.object(sys, "argv", testargs):
-        with patch.object(os, "environ", testenv):
-            parsed = _parse_args()
-            assert parsed.process_id == 0
-            assert parsed.addresses == "localhost:1234;localhost:5678"
+    with patch.object(sys, "argv", testargs), patch.object(os, "environ", testenv):
+        parsed = _parse_args()
+        assert parsed.process_id == 0
+        assert parsed.addresses == "localhost:1234;localhost:5678"
 
 
 def test_parse_backup_interval():

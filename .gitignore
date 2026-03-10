@@ -87,3 +87,16 @@ pyrightconfig.json
 # Devenv stuff
 .devenv.flake.nix
 devenv.*
+
+# Environment variables
+.env
+.env.*
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+
+# Editor artifacts
+*.swp
+*.swo
+*~

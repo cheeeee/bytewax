@@ -12,7 +12,7 @@ def test_key_on():
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
-    s = op.key_on("key", s, lambda x: str(x))
+    s = op.key_on("key", s, str)
     op.output("out", s, TestingSink(out))
 
     run_main(flow)
@@ -30,6 +30,5 @@ def test_key_on_raises_on_non_str_key():
     op.output("out", s, TestingSink(out))
 
     expect = "must be a `str`"
-    with raises(RuntimeError):
-        with raises(TypeError, match=re.escape(expect)):
-            run_main(flow)
+    with raises(RuntimeError), raises(TypeError, match=re.escape(expect)):
+        run_main(flow)

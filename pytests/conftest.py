@@ -4,6 +4,7 @@ This sets up our fixtures and logging.
 
 """
 
+import os
 from datetime import datetime, timezone
 
 from bytewax.recovery import RecoveryConfig, init_db_dir
@@ -60,13 +61,13 @@ def recovery_config(tmp_path):
 
     """
     init_db_dir(tmp_path, 1)
-    yield RecoveryConfig(str(tmp_path))
+    return RecoveryConfig(str(tmp_path))
 
 
 @fixture
 def now():
     """Get the current `datetime` in UTC."""
-    yield datetime.now(timezone.utc)
+    return datetime.now(timezone.utc)
 
 
 def pytest_addoption(parser):
@@ -87,3 +88,18 @@ def pytest_configure(config):
     log_level = config.getoption("--bytewax-log-level")
     if log_level:
         setup_tracing(log_level=log_level)
+
+
+def pytest_collection_modifyitems(items):
+    """Prefix benchmark node IDs with Python version for CodSpeed.
+
+    When CODSPEED_BENCHMARK_PREFIX is set (e.g. "py3.12"), benchmark
+    test IDs become unique across Python version matrix jobs so
+    CodSpeed can track them separately.
+    """
+    prefix = os.environ.get("CODSPEED_BENCHMARK_PREFIX", "")
+    if not prefix:
+        return
+    for item in items:
+        if "benchmark" in item.fixturenames:
+            item._nodeid = f"{prefix}/{item.nodeid}"

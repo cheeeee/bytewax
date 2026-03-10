@@ -1,9 +1,11 @@
 //! Code implementing Bytewax's core operators.
 
-use std::collections::hash_map::DefaultHasher;
-use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::BuildHasherDefault;
+
+use ahash::AHashMap;
+use ahash::AHashSet;
 
 use chrono::DateTime;
 use chrono::Utc;
@@ -11,23 +13,28 @@ use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Concatenate;
-use timely::dataflow::operators::Exchange;
-use timely::dataflow::operators::Map;
-use timely::dataflow::operators::ToStream;
+use timely::ExchangeData;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
+use timely::dataflow::channels::pact::Pipeline;
+use timely::dataflow::operators::Concatenate;
+use timely::dataflow::operators::Exchange;
+use timely::dataflow::operators::Operator;
+use timely::dataflow::operators::ToStream;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::order::TotalOrder;
 use timely::progress::Antichain;
-use timely::ExchangeData;
 
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
+use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
-use crate::recovery::*;
-use crate::timely::*;
+use crate::recovery::{FilterSnapsOp, ResumeEpoch, Snapshot, StateChange, StateKey, StepId};
+use crate::timely::{
+    AsWorkerExt, CapabilityIterEx, ClockStream, EagerNotificator, FrontierEx, InBuffer,
+    OpInputHandleEx, PartitionOp, routed_exchange,
+};
 use crate::unwrap_any;
 use crate::with_timer;
 
@@ -46,24 +53,21 @@ impl<S> BranchOp<S> for Stream<S, TdPyAny>
 where
     S: Scope,
 {
-    fn branch(
-        &self,
-        step_id: StepId,
-        predicate: TdPyCallable,
-    ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, TdPyAny>)> {
+    fn branch(&self, step_id: StepId, predicate: TdPyCallable) -> PyResult<(Self, Self)> {
         let mut op_builder = OperatorBuilder::new(format!("{step_id}.branch"), self.scope());
 
         let mut self_handle = op_builder.new_input(self, Pipeline);
         let (mut trues_output, trues) = op_builder.new_output();
         let (mut falses_output, falses) = op_builder.new_output();
 
+        #[allow(clippy::iter_with_drain)]
         op_builder.build(move |_| {
             let mut inbuf = Vec::new();
             move |_frontiers| {
                 let mut trues_handle = trues_output.activate();
                 let mut falses_handle = falses_output.activate();
 
-                Python::with_gil(|py| {
+                Python::attach(|py| {
                     self_handle.for_each(|time, data| {
                         data.swap(&mut inbuf);
                         let mut trues_session = trues_handle.session(&time);
@@ -90,7 +94,7 @@ where
                             }
                             Ok(())
                         }());
-                    })
+                    });
                 });
             }
         });
@@ -102,18 +106,27 @@ where
 fn next_batch(
     outbuf: &mut Vec<TdPyAny>,
     mapper: &Bound<'_, PyAny>,
-    in_batch: Vec<PyObject>,
+    in_batch: Vec<Py<PyAny>>,
 ) -> PyResult<()> {
     let res = mapper.call1((in_batch,)).reraise("error calling mapper")?;
-    let iter = res.iter().reraise_with(|| {
-        format!(
-            "mapper must return an iterable; got a `{}` instead",
-            unwrap_any!(res.get_type().name()),
-        )
-    })?;
-    for res in iter {
-        let out_item = res.reraise("error while iterating through batch")?;
-        outbuf.push(out_item.into());
+    // Fast path: if the mapper returned a list, iterate via direct
+    // C-level array access instead of the Python iterator protocol.
+    if let Ok(list) = res.cast::<pyo3::types::PyList>() {
+        outbuf.reserve(list.len());
+        for item in list.iter() {
+            outbuf.push(TdPyAny::from(item.unbind()));
+        }
+    } else {
+        let iter = res.try_iter().reraise_with(|| {
+            format!(
+                "mapper must return an iterable; got a `{}` instead",
+                unwrap_any!(res.get_type().qualname()),
+            )
+        })?;
+        for res in iter {
+            let out_item = res.reraise("error while iterating through batch")?;
+            outbuf.push(out_item.into());
+        }
     }
 
     Ok(())
@@ -137,12 +150,7 @@ where
     S: Scope,
     S::Timestamp: TotalOrder,
 {
-    fn flat_map_batch(
-        &self,
-        _py: Python,
-        step_id: StepId,
-        mapper: TdPyCallable,
-    ) -> PyResult<Stream<S, TdPyAny>> {
+    fn flat_map_batch(&self, _py: Python, step_id: StepId, mapper: TdPyCallable) -> PyResult<Self> {
         let this_worker = self.scope().w_index();
 
         let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
@@ -155,17 +163,17 @@ where
         let item_inp_count = meter
             .u64_counter("item_inp_count")
             .with_description("number of items this step has ingested")
-            .init();
+            .build();
         let item_out_count = meter
             .u64_counter("item_out_count")
             .with_description("number of items this step has emitted")
-            .init();
+            .build();
         let mapper_histogram = meter
             .f64_histogram("flat_map_batch_duration_seconds")
             .with_description("`flat_map_batch` `mapper` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
         ];
 
@@ -195,9 +203,9 @@ where
                                 item_inp_count.add(batch.len() as u64, &labels);
                                 let mut downstream_session = downstream_handle.session(cap);
 
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     let batch: Vec<_> =
-                                        batch.into_iter().map(PyObject::from).collect();
+                                        batch.into_iter().map(<Py<PyAny>>::from).collect();
                                     let mapper = mapper.bind(py);
 
                                     with_timer!(
@@ -242,14 +250,14 @@ where
 impl<S> InspectDebugOp<S> for Stream<S, TdPyAny>
 where
     S: Scope,
-    S::Timestamp: IntoPy<PyObject> + TotalOrder,
+    S::Timestamp: for<'a> IntoPyObject<'a> + TotalOrder,
 {
     fn inspect_debug(
         &self,
         _py: Python,
         step_id: StepId,
         inspector: TdPyCallable,
-    ) -> PyResult<(Stream<S, TdPyAny>, ClockStream<S>)> {
+    ) -> PyResult<(Self, ClockStream<S>)> {
         let this_worker = self.scope().w_index();
 
         let mut op_builder = OperatorBuilder::new(step_id.0.clone(), self.scope());
@@ -281,10 +289,10 @@ where
                                     downstream_handle.session(downstream_cap);
                                 let mut clock_session = clock_handle.session(clock_cap);
 
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     let inspector = inspector.bind(py);
 
-                                    for item in items.iter() {
+                                    for item in &items {
                                         let item = item.bind(py);
 
                                         inspector
@@ -355,7 +363,7 @@ where
     S: Scope,
     D: ExchangeData,
 {
-    fn redistribute(&self, _step_id: StepId) -> Stream<S, D> {
+    fn redistribute(&self, _step_id: StepId) -> Self {
         self.exchange(move |_| fastrand::u64(..))
     }
 }
@@ -378,29 +386,30 @@ where
 
         let (mut downstream_output, downstream) = op_builder.new_output();
 
+        #[allow(clippy::iter_with_drain)]
         op_builder.build(move |_| {
             let mut inbuf = Vec::new();
             move |_frontiers| {
                 let mut downstream_handle = downstream_output.activate();
 
-                Python::with_gil(|py| {
+                Python::attach(|py| {
                     self_handle.for_each(|time, data| {
                         data.swap(&mut inbuf);
                         let mut downstream_session = downstream_handle.session(&time);
                         unwrap_any!(|| -> PyResult<()> {
                             for item in inbuf.drain(..) {
-                                let item = PyObject::from(item);
+                                let item = <Py<PyAny>>::from(item);
                                 let (key, value) = item
-                                    .extract::<(&PyAny, PyObject)>(py)
+                                    .extract::<(Bound<'_, PyAny>, Py<PyAny>)>(py)
                                     .raise_with::<PyTypeError>(|| {
                                         format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
-                                            unwrap_any!(item.bind(py).get_type().name()),
+                                            unwrap_any!(item.bind(py).get_type().qualname()),
                                         )
                                     })?;
 
                                 let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
                                     format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
-                                        unwrap_any!(key.get_type().name()),
+                                        unwrap_any!(key.get_type().qualname()),
                                     )
                                 })?;
                                 downstream_session.give((key, TdPyAny::from(value)));
@@ -427,12 +436,26 @@ where
     S: Scope,
 {
     fn wrap_key(&self) -> Stream<S, TdPyAny> {
-        self.map(move |(key, value)| {
-            let value = PyObject::from(value);
-
-            let item = Python::with_gil(|py| IntoPy::<PyObject>::into_py((key, value), py));
-
-            TdPyAny::from(item)
+        self.unary(Pipeline, "WrapKey", |_cap, _info| {
+            let mut buf = Vec::new();
+            move |input, output| {
+                input.for_each(|time, data| {
+                    data.swap(&mut buf);
+                    let mut session = output.session(&time);
+                    Python::attach(|py| {
+                        #[allow(clippy::iter_with_drain)]
+                        for (key, value) in buf.drain(..) {
+                            #[allow(clippy::unwrap_used)]
+                            let item: Py<PyAny> = (key, value.bind(py))
+                                .into_pyobject(py)
+                                .unwrap()
+                                .unbind()
+                                .into();
+                            session.give(TdPyAny::from(item));
+                        }
+                    });
+                });
+            }
         })
     }
 }
@@ -451,21 +474,22 @@ where
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>;
 }
 
-struct StatefulBatchLogic(PyObject);
+struct StatefulBatchLogic(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatefulBatchLogic {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for StatefulBatchLogic {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.operators")?
+            .import("bytewax.operators")?
             .getattr("StatefulBatchLogic")?;
-        if !ob.is_instance(&abc)? {
-            Err(PyTypeError::new_err(
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
+            Err(tracked_err::<PyTypeError>(
                 "logic must subclass `bytewax.operators.StatefulBatchLogic`",
             ))
-        } else {
-            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -475,34 +499,37 @@ enum IsComplete {
     Discard,
 }
 
-impl<'py> FromPyObject<'py> for IsComplete {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for IsComplete {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if ob.extract::<bool>().reraise_with(|| {
             format!(
                 "`is_complete` was not a `bool`; got a `{}` instead",
-                unwrap_any!(ob.get_type().name())
+                unwrap_any!(ob.get_type().qualname())
             )
         })? {
-            Ok(IsComplete::Discard)
+            Ok(Self::Discard)
         } else {
-            Ok(IsComplete::Retain)
+            Ok(Self::Retain)
         }
     }
 }
 
 impl StatefulBatchLogic {
-    fn extract_ret(res: Bound<'_, PyAny>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let (iter, is_complete) = res.extract::<(&PyAny, &PyAny)>().reraise_with(|| {
-            format!(
-                "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
-                unwrap_any!(res.get_type().name())
-            )
-        })?;
+    fn extract_ret(res: Bound<'_, PyAny>) -> PyResult<(Vec<Py<PyAny>>, IsComplete)> {
+        let (iter, is_complete) = res
+            .extract::<(Bound<'_, PyAny>, Bound<'_, PyAny>)>()
+            .reraise_with(|| {
+                format!(
+                    "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
+                    unwrap_any!(res.get_type().qualname())
+                )
+            })?;
         let is_complete = is_complete.extract::<IsComplete>()?;
         let emit = iter.extract::<Vec<_>>().reraise_with(|| {
             format!(
                 "`emit` was not a `list`; got a `{}` instead",
-                unwrap_any!(iter.get_type().name())
+                unwrap_any!(iter.get_type().qualname())
             )
         })?;
 
@@ -512,8 +539,8 @@ impl StatefulBatchLogic {
     fn on_batch<'py>(
         &'py self,
         py: Python<'py>,
-        items: Vec<PyObject>,
-    ) -> PyResult<(Vec<PyObject>, IsComplete)> {
+        items: Vec<Py<PyAny>>,
+    ) -> PyResult<(Vec<Py<PyAny>>, IsComplete)> {
         let res = self
             .0
             .bind(py)
@@ -521,27 +548,27 @@ impl StatefulBatchLogic {
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
-    fn on_notify<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
+    fn on_notify<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<Py<PyAny>>, IsComplete)> {
         let res = self.0.bind(py).call_method0(intern!(py, "on_notify"))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
-    fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let res = self.0.bind(py).call_method0("on_eof")?;
+    fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<Py<PyAny>>, IsComplete)> {
+        let res = self.0.bind(py).call_method0(intern!(py, "on_eof"))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
         let res = self.0.bind(py).call_method0(intern!(py, "notify_at"))?;
-        res.extract().reraise_with(|| {
+        res.extract::<Option<DateTime<Utc>>>().reraise_with(|| {
             format!(
                 "did not return a `datetime`; got a `{}` instead",
-                unwrap_any!(res.get_type().name())
+                unwrap_any!(res.get_type().qualname())
             )
         })
     }
 
-    fn snapshot(&self, py: Python) -> PyResult<PyObject> {
+    fn snapshot(&self, py: Python) -> PyResult<Py<PyAny>> {
         self.0.call_method0(py, intern!(py, "snapshot"))
     }
 }
@@ -557,7 +584,7 @@ where
         builder: TdPyCallable,
         resume_epoch: ResumeEpoch,
         loads: &Stream<S, Snapshot>,
-    ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)> {
+    ) -> PyResult<(Self, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
 
         let loads = loads.filter_snaps(step_id.clone());
@@ -597,33 +624,33 @@ where
         let item_inp_count = meter
             .u64_counter("item_inp_count")
             .with_description("number of items this step has ingested")
-            .init();
+            .build();
         let item_out_count = meter
             .u64_counter("item_out_count")
             .with_description("number of items this step has emitted")
-            .init();
+            .build();
         let on_batch_histogram = meter
             .f64_histogram("stateful_batch_on_batch_duration_seconds")
             .with_description("`StatefulBatchLogic.on_batch` duration in seconds")
-            .init();
+            .build();
         let on_notify_histogram = meter
             .f64_histogram("stateful_batch_on_notify_duration_seconds")
             .with_description("`StatefulBatchLogic.on_notify` duration in seconds")
-            .init();
+            .build();
         let on_eof_histogram = meter
             .f64_histogram("stateful_batch_on_eof_duration_seconds")
             .with_description("`StatefulBatchLogic.on_eof` duration in seconds")
-            .init();
+            .build();
         let notify_at_histogram = meter
             .f64_histogram("stateful_batch_notify_at_duration_seconds")
             .with_description("`StatefulBatchLogic.notify_at` duration in seconds")
-            .init();
+            .build();
         let snapshot_histogram = meter
             .f64_histogram("snapshot_duration_seconds")
             .with_description("`snapshot` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
         ];
 
@@ -640,12 +667,12 @@ where
             // each key representing the state at the frontier epoch;
             // we only modify state carefully in epoch order once we
             // know we won't be getting any input on closed epochs.
-            let mut logics: BTreeMap<StateKey, StatefulBatchLogic> = BTreeMap::new();
+            let mut logics: AHashMap<StateKey, StatefulBatchLogic> = AHashMap::new();
             // Contains the last known return value for
             // `logic.notify_at` for each key (if any). We don't
             // snapshot this because the logic itself should contain
             // any notify times within.
-            let mut sched_cache: BTreeMap<StateKey, DateTime<Utc>> = BTreeMap::new();
+            let mut sched_cache: AHashMap<StateKey, DateTime<Utc>> = AHashMap::new();
 
             // Here we have "buffers" that store items across
             // activations.
@@ -662,7 +689,7 @@ where
             // only snapshot state of keys that could have resulted in
             // state modifications. This is drained after each epoch
             // is processed.
-            let mut awoken_keys_this_epoch_buffer: BTreeSet<StateKey> = BTreeSet::new();
+            let mut awoken_keys_this_epoch_buffer: AHashSet<StateKey> = AHashSet::new();
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
@@ -729,6 +756,10 @@ where
 
                         let mut kv_downstream_handle = kv_downstream_output.activate();
                         let mut snaps_handle = snaps_output.activate();
+                        // Reuse across epochs to avoid reallocation.
+                        let mut keyed_items: AHashMap<StateKey, Vec<Py<PyAny>>> = AHashMap::new();
+                        let mut awoken_keys_this_activation: AHashSet<StateKey> = AHashSet::new();
+                        let mut notify_at_done: AHashSet<StateKey> = AHashSet::new();
                         // For each epoch in order.
                         for epoch in process_epochs {
                             tracing::trace!("Processing epoch {epoch:?}");
@@ -745,26 +776,25 @@ where
                             let mut kv_downstream_session =
                                 kv_downstream_handle.session(&output_cap);
 
-                            // Keep track of all keys that had logic
-                            // methods called so we know which to call
-                            // `notify_at` on.
-                            let mut awoken_keys_this_activation: BTreeSet<StateKey> = BTreeSet::new();
+                            // Clear per-epoch tracking sets (reuse allocations).
+                            awoken_keys_this_activation.clear();
+                            notify_at_done.clear();
 
                             // First, call `on_batch` for all the input
                             // items.
                             if let Some(items) = inbuf.remove(&epoch) {
                                 item_inp_count.add(items.len() as u64, &labels);
 
-                                let mut keyed_items: BTreeMap<StateKey, Vec<PyObject>> = BTreeMap::new();
+                                keyed_items.clear();
                                 for (worker, (key, value)) in items {
                                     assert!(worker == this_worker);
-                                    keyed_items.entry(key).or_default().push(PyObject::from(value));
+                                    keyed_items.entry(key).or_default().push(<Py<PyAny>>::from(value));
                                 }
 
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     let builder = builder.bind(py);
 
-                                    for (key, values) in keyed_items {
+                                    for (key, values) in keyed_items.drain() {
                                         // Ok, let's actually run the logic code!
                                         // Pull out or build the logic for the
                                         // current key.
@@ -772,7 +802,7 @@ where
                                             logics.entry(key.clone()).or_insert_with(|| {
                                                 unwrap_any!((|| {
                                                     builder
-                                                        .call1((None::<PyObject>, ))?
+                                                        .call1((None::<Py<PyAny>>, ))?
                                                         .extract::<StatefulBatchLogic>()
                                                 })(
                                                 ))
@@ -793,9 +823,24 @@ where
                                             kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
 
-                                        if let IsComplete::Discard = is_complete {
+                                        if matches!(is_complete, IsComplete::Discard) {
                                             logics.remove(&key);
                                             sched_cache.remove(&key);
+                                        } else {
+                                            // Inline notify_at here to avoid a
+                                            // separate Python call in the
+                                            // notify_at loop below.
+                                            let sched = with_timer!(
+                                                notify_at_histogram,
+                                                labels,
+                                                logic.notify_at(py).reraise_with(|| {
+                                                    format!("error calling `StatefulBatchLogic.notify_at` in {step_id} for key {key}")
+                                                })?
+                                            );
+                                            if let Some(sched) = sched {
+                                                sched_cache.insert(key.clone(), sched);
+                                            }
+                                            notify_at_done.insert(key.clone());
                                         }
 
                                         awoken_keys_this_activation.insert(key);
@@ -806,20 +851,27 @@ where
                             }
 
                             // Then call all logic that has a due
-                            // notification.
-                            let notify_keys: Vec<_> = sched_cache
-                                .iter()
-                                .filter(|(_key, sched)| **sched <= now)
-                                .map(|(key, sched)| (key.clone(), *sched))
-                                .collect();
+                            // notification. Single pass: collect due
+                            // keys and remove them from sched_cache.
+                            let mut notify_keys: Vec<StateKey> = Vec::new();
+                            sched_cache.retain(|key, sched| {
+                                if *sched <= now {
+                                    notify_keys.push(key.clone());
+                                    false
+                                } else {
+                                    true
+                                }
+                            });
                             if !notify_keys.is_empty() {
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    for (key, _sched) in notify_keys {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
+                                    for key in notify_keys {
                                         // We should always have a
                                         // logic for anything in
                                         // `sched_cache`. If not, we
                                         // forgot to remove it when we
                                         // cleared the logic.
+                                        // TODO: Convert to proper error handling with `?` operator.
+                                        #[allow(clippy::unwrap_used)]
                                         let logic = logics.get(&key).unwrap();
 
                                         let (output, is_complete) = with_timer!(
@@ -835,19 +887,8 @@ where
                                             kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
 
-                                        if let IsComplete::Discard = is_complete {
+                                        if matches!(is_complete, IsComplete::Discard) {
                                             logics.remove(&key);
-                                            sched_cache.remove(&key);
-                                        } else {
-                                            // Even if we don't
-                                            // discard the logic, the
-                                            // previous scheduled
-                                            // notification only
-                                            // should fire once. The
-                                            // logic can re-schedule
-                                            // it by still returning
-                                            // it in `notify_at`.
-                                            sched_cache.remove(&key);
                                         }
 
                                         awoken_keys_this_activation.insert(key);
@@ -862,8 +903,8 @@ where
                             if input_frontiers.is_eof() {
                                 let mut discarded_keys = Vec::new();
 
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    for (key, logic) in logics.iter() {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
+                                    for (key, logic) in &logics {
                                         let (output, is_complete) = with_timer!(
                                             on_eof_histogram,
                                             labels,
@@ -877,7 +918,7 @@ where
                                             kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                         }
 
-                                        if let IsComplete::Discard = is_complete {
+                                        if matches!(is_complete, IsComplete::Discard) {
                                             discarded_keys.push(key.clone());
                                         }
 
@@ -895,36 +936,47 @@ where
 
                             // Then go through all awoken keys and
                             // update the next scheduled notification
-                            // times.
+                            // times. Skip keys already handled during
+                            // on_batch (inlined notify_at above).
                             if !awoken_keys_this_activation.is_empty() {
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    for key in awoken_keys_this_activation.iter() {
-                                        // It's possible the logic was
-                                        // discarded on a previous
-                                        // activation but the epoch
-                                        // hasn't ended so the key is
-                                        // still in
-                                        // `awoken_keys_buffer`.
-                                        if let Some(logic) = logics.get(key) {
-                                            let sched = with_timer!(
-                                                notify_at_histogram,
-                                                labels,
-                                                logic.notify_at(py).reraise_with(|| {
-                                                    format!("error calling `StatefulBatchLogic.notify_at` in {step_id} for key {key}")
-                                                })?
-                                            );
-                                            if let Some(sched) = sched {
-                                                sched_cache.insert(key.clone(), sched);
+                                // Only acquire GIL if there are keys
+                                // not yet handled by the on_batch loop.
+                                let needs_notify_at = awoken_keys_this_activation
+                                    .iter()
+                                    .any(|key| !notify_at_done.contains(key));
+                                if needs_notify_at {
+                                    unwrap_any!(Python::attach(|py| -> PyResult<()> {
+                                        for key in &awoken_keys_this_activation {
+                                            if notify_at_done.contains(key) {
+                                                continue;
+                                            }
+                                            // It's possible the logic was
+                                            // discarded on a previous
+                                            // activation but the epoch
+                                            // hasn't ended so the key is
+                                            // still in
+                                            // `awoken_keys_buffer`.
+                                            if let Some(logic) = logics.get(key) {
+                                                let sched = with_timer!(
+                                                    notify_at_histogram,
+                                                    labels,
+                                                    logic.notify_at(py).reraise_with(|| {
+                                                        format!("error calling `StatefulBatchLogic.notify_at` in {step_id} for key {key}")
+                                                    })?
+                                                );
+                                                if let Some(sched) = sched {
+                                                    sched_cache.insert(key.clone(), sched);
+                                                }
                                             }
                                         }
-                                    }
 
-                                    Ok(())
-                                }));
+                                        Ok(())
+                                    }));
+                                }
 
                                 // Now mark all these keys as aowken
                                 // in the epoch so snapshotting works.
-                                awoken_keys_this_epoch_buffer.extend(awoken_keys_this_activation);
+                                awoken_keys_this_epoch_buffer.extend(awoken_keys_this_activation.drain());
                             }
 
                             // Snapshot and output state changes.
@@ -939,7 +991,7 @@ where
                                 // Go through all keys awoken in this
                                 // epoch. This might involve keys from the
                                 // previous activation.
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     // Finally drain
                                     // `awoken_keys_buffer` since the
                                     // epoch is over.
@@ -971,7 +1023,7 @@ where
                                 }));
 
                                 if let Some(loads) = loads_inbuf.remove(&epoch) {
-                                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                         let builder = builder.bind(py);
 
                                         for (worker, (key, change)) in loads {
@@ -981,7 +1033,7 @@ where
                                             assert!(worker == this_worker);
                                             match change {
                                                 StateChange::Upsert(state) => {
-                                                    let state: PyObject = state.into();
+                                                    let state: Py<PyAny> = state.into();
 
                                                     let logic = builder
                                                         .call1((Some(state),))?

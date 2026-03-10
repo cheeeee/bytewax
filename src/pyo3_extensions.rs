@@ -1,22 +1,74 @@
-//! Newtypes around PyO3 types which allow easier interfacing with
+//! Newtypes around `PyO3` types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
+use crate::errors::tracked_err;
 use crate::try_unwrap;
 
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
+use pyo3::sync::PyOnceLock;
 use pyo3::types::PyBytes;
 use serde::ser::Error;
 use std::fmt;
+use std::mem::ManuallyDrop;
+use std::ops::Deref;
+use std::sync::Arc;
 
-static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+static PICKLE_MODULE: PyOnceLock<SafePy<PyModule>> = PyOnceLock::new();
+
+/// Wrapper around [`Py<T>`] that prevents segfaults during Python
+/// 3.13+ interpreter finalization. On 3.13+, `Py<T>::Drop` calls
+/// `Py_DECREF` which can dereference already-freed type objects. This
+/// wrapper checks `Py_IsFinalizing()` before dropping, intentionally
+/// leaking the reference (the process is exiting anyway).
+pub(crate) struct SafePy<T>(ManuallyDrop<Py<T>>);
+
+impl<T> Drop for SafePy<T> {
+    fn drop(&mut self) {
+        #[cfg(Py_3_13)]
+        if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
+            return;
+        }
+        // SAFETY: Only called once (in Drop), skipped when finalizing.
+        unsafe { ManuallyDrop::drop(&mut self.0) };
+    }
+}
+
+impl<T> Deref for SafePy<T> {
+    type Target = Py<T>;
+    fn deref(&self) -> &Py<T> {
+        &self.0
+    }
+}
+
+impl<T> Clone for SafePy<T> {
+    fn clone(&self) -> Self {
+        Python::attach(|py| Self(ManuallyDrop::new(self.0.clone_ref(py))))
+    }
+}
+
+impl<T> From<Py<T>> for SafePy<T> {
+    fn from(obj: Py<T>) -> Self {
+        Self(ManuallyDrop::new(obj))
+    }
+}
+
+impl<T> SafePy<T> {
+    /// Take the inner `Py<T>` out, preventing `SafePy`'s `Drop`.
+    pub(crate) fn into_inner(mut self) -> Py<T> {
+        // SAFETY: We take the value and forget self so Drop doesn't
+        // double-free.
+        let inner = unsafe { ManuallyDrop::take(&mut self.0) };
+        std::mem::forget(self);
+        inner
+    }
+}
 
 /// Represents a Python object flowing through a Timely dataflow.
 ///
 /// As soon as you need to manipulate this object, convert it into a
-/// [`PyObject`] or bind it into a [`Bound`]. This should only exist
+/// [`Py<PyAny>`] or bind it into a [`Bound`]. This should only exist
 /// within the dataflow.
 ///
 /// A newtype for [`Py`]<[`PyAny`]> so we can
@@ -24,7 +76,7 @@ static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 /// <https://github.com/Ixrec/rust-orphan-rules> for why we need a
 /// newtype and what they are.
 #[derive(Clone)]
-pub(crate) struct TdPyAny(PyObject);
+pub(crate) struct TdPyAny(Arc<SafePy<PyAny>>);
 
 impl TdPyAny {
     pub(crate) fn bind<'py>(&self, py: Python<'py>) -> &Bound<'py, PyAny> {
@@ -32,28 +84,31 @@ impl TdPyAny {
     }
 }
 
-impl From<TdPyAny> for PyObject {
+impl From<TdPyAny> for Py<PyAny> {
     fn from(x: TdPyAny) -> Self {
-        x.0
+        match Arc::try_unwrap(x.0) {
+            Ok(safe) => safe.into_inner(),
+            Err(arc) => Python::attach(|py| (*arc).clone_ref(py)),
+        }
     }
 }
 
-impl From<PyObject> for TdPyAny {
-    fn from(x: PyObject) -> Self {
-        Self(x)
+impl From<Py<PyAny>> for TdPyAny {
+    fn from(x: Py<PyAny>) -> Self {
+        Self(Arc::new(SafePy::from(x)))
     }
 }
 
 impl From<Bound<'_, PyAny>> for TdPyAny {
     fn from(x: Bound<'_, PyAny>) -> Self {
-        Self(x.unbind())
+        Self(Arc::new(SafePy::from(x.unbind())))
     }
 }
 
 /// Allows you to debug print Python objects using their repr.
 impl std::fmt::Debug for TdPyAny {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let s: PyResult<String> = Python::with_gil(|py| {
+        let s: PyResult<String> = Python::attach(|py| {
             let self_ = self.bind(py);
             let binding = self_.repr()?;
             let repr = binding.to_str()?;
@@ -86,18 +141,18 @@ impl serde::Serialize for TdPyAny {
     where
         S: serde::Serializer,
     {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let x = self.bind(py);
             let pickle = PICKLE_MODULE
-                .get_or_try_init(py, || -> PyResult<Py<PyModule>> {
-                    Ok(py.import_bound("pickle")?.unbind())
+                .get_or_try_init(py, || -> PyResult<SafePy<PyModule>> {
+                    Ok(py.import("pickle")?.unbind().into())
                 })
                 .map_err(S::Error::custom)?;
             let binding = pickle
                 .bind(py)
                 .call_method1(intern!(py, "dumps"), (x,))
                 .map_err(S::Error::custom)?;
-            let bytes = binding.downcast::<PyBytes>().map_err(S::Error::custom)?;
+            let bytes = binding.cast::<PyBytes>().map_err(S::Error::custom)?;
             serializer
                 .serialize_bytes(bytes.as_bytes())
                 .map_err(S::Error::custom)
@@ -107,20 +162,25 @@ impl serde::Serialize for TdPyAny {
 
 pub(crate) struct PickleVisitor;
 
-impl<'de> serde::de::Visitor<'de> for PickleVisitor {
+impl serde::de::Visitor<'_> for PickleVisitor {
     type Value = TdPyAny;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("a pickled byte array")
     }
 
-    fn visit_bytes<'py, E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+    fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let pickle = py.import_bound("pickle")?;
-            let x = pickle
+        let x: Result<TdPyAny, PyErr> = Python::attach(|py| {
+            let loaded_pickle = PICKLE_MODULE
+                .get_or_try_init(py, || -> PyResult<SafePy<PyModule>> {
+                    Ok(py.import("pickle")?.unbind().into())
+                })
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+            let x = loaded_pickle
+                .bind(py)
                 .call_method1(intern!(py, "loads"), (bytes,))?
                 .unbind()
                 .into();
@@ -141,15 +201,12 @@ impl<'de> serde::Deserialize<'de> for TdPyAny {
 /// Re-use Python's value semantics in Rust code.
 impl PartialEq for TdPyAny {
     fn eq(&self, other: &Self) -> bool {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             // Don't use Py.eq or PyAny.eq since it only checks
             // pointer identity.
             let self_ = self.bind(py);
             let other = other.bind(py);
-            try_unwrap!(self_
-                .rich_compare(other, CompareOp::Eq)?
-                .as_gil_ref()
-                .is_truthy())
+            try_unwrap!(self_.rich_compare(other, CompareOp::Eq)?.is_truthy())
         })
     }
 }
@@ -158,29 +215,29 @@ impl PartialEq for TdPyAny {
 ///
 /// To actually call, you must [`bind`] it and use the bound interface
 /// in order to not need to have a dual `TdPyX` vs `TdBoundX`.
-pub(crate) struct TdPyCallable(PyObject);
+pub(crate) struct TdPyCallable(SafePy<PyAny>);
 
-/// Have PyO3 do type checking to ensure we only make from callable
+/// Have `PyO3` do type checking to ensure we only make from callable
 /// objects.
-impl<'py> FromPyObject<'py> for TdPyCallable {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for TdPyCallable {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if ob.is_callable() {
             let py = ob.py();
-            Ok(Self(ob.as_unbound().clone_ref(py)))
+            Ok(Self(SafePy::from(ob.as_unbound().clone_ref(py))))
         } else {
-            let msg = if let Ok(type_name) = ob.get_type().name() {
-                format!("'{type_name}' object is not callable")
-            } else {
-                "object is not callable".to_string()
-            };
-            Err(PyTypeError::new_err(msg))
+            let msg = ob.get_type().qualname().map_or_else(
+                |_| "object is not callable".to_string(),
+                |type_name| format!("'{type_name}' object is not callable"),
+            );
+            Err(tracked_err::<PyTypeError>(&msg))
         }
     }
 }
 
 impl fmt::Debug for TdPyCallable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let s: PyResult<String> = Python::with_gil(|py| {
+        let s: PyResult<String> = Python::attach(|py| {
             let name: String = self.0.bind(py).getattr("__name__")?.extract()?;
             Ok(name)
         });
@@ -198,4 +255,29 @@ impl TdPyCallable {
 // The function returns one of the possible subclasses instances.
 pub(crate) trait PyConfigClass<S> {
     fn downcast(&self, py: Python) -> PyResult<S>;
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use pyo3::exceptions::PyTypeError;
+
+    #[test]
+    fn callable_rejects_non_callable() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let obj = 42i32.into_pyobject(py).unwrap().into_any();
+            let result = TdPyCallable::extract(obj.as_borrowed());
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(err.is_instance_of::<PyTypeError>(py));
+            let msg = err.to_string();
+            assert!(
+                msg.contains("pyo3_extensions.rs"),
+                "expected file in: {msg}"
+            );
+            assert!(msg.contains("not callable"), "expected message in: {msg}");
+        });
+    }
 }

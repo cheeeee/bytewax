@@ -10,59 +10,61 @@ use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Map;
-use timely::dataflow::operators::Operator;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
+use timely::dataflow::channels::pact::Pipeline;
+use timely::dataflow::operators::Map;
+use timely::dataflow::operators::Operator;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::progress::Timestamp;
 
-use crate::errors::tracked_err;
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::operators::ExtractKeyOp;
+use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
-use crate::recovery::*;
-use crate::timely::*;
+use crate::recovery::{FilterSnapsOp, Snapshot, StateChange, StateKey, StepId};
+use crate::timely::{
+    AsWorkerExt, AssignPrimariesOp, ClockStream, EagerNotificator, InBuffer, IntoBroadcastOp,
+    OpInputHandleEx, PartitionFn, PartitionOp, RouteOp, WorkerCount, WorkerIndex, routed_exchange,
+};
 use crate::unwrap_any;
 use crate::with_timer;
 
 /// Represents a `bytewax.outputs.Sink` from Python.
 #[derive(Clone)]
-pub(crate) struct Sink(Py<PyAny>);
+pub(crate) struct Sink(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for Sink {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for Sink {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.outputs")?.getattr("Sink")?;
-        if !ob.is_instance(&abc)? {
+        let abc = py.import("bytewax.outputs")?.getattr("Sink")?;
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "sink must subclass `bytewax.outputs.Sink`",
             ))
-        } else {
-            Ok(Self(ob.to_object(py)))
         }
     }
 }
 
-impl IntoPy<Py<PyAny>> for Sink {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
-    }
-}
-
-impl ToPyObject for Sink {
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.0.to_object(py)
+impl<'py> IntoPyObject<'py> for Sink {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = std::convert::Infallible;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(self.0.into_inner().into_bound(py))
     }
 }
 
 impl Sink {
     pub(crate) fn extract<'p, D>(&'p self, py: Python<'p>) -> PyResult<D>
     where
-        D: FromPyObject<'p>,
+        D: FromPyObject<'p, 'p, Error = PyErr>,
     {
         self.0.extract(py)
     }
@@ -70,28 +72,31 @@ impl Sink {
 
 /// Represents a `bytewax.outputs.PartitionedOutput` from Python.
 #[derive(Clone)]
-pub(crate) struct FixedPartitionedSink(Py<PyAny>);
+pub(crate) struct FixedPartitionedSink(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for FixedPartitionedSink {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for FixedPartitionedSink {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.outputs")?
+            .import("bytewax.outputs")?
             .getattr("FixedPartitionedSink")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "fixed partitioned sink must subclass `bytewax.outputs.FixedPartitionedSink`",
             ))
-        } else {
-            Ok(Self(ob.to_object(py)))
         }
     }
 }
 
 impl FixedPartitionedSink {
     fn list_parts(&self, py: Python) -> PyResult<Vec<StateKey>> {
-        self.0.call_method0(py, "list_parts")?.extract(py)
+        self.0
+            .call_method0(py, intern!(py, "list_parts"))?
+            .extract(py)
     }
 
     fn build_part(
@@ -99,7 +104,7 @@ impl FixedPartitionedSink {
         py: Python,
         step_id: &StepId,
         for_part: &StateKey,
-        resume_state: Option<PyObject>,
+        resume_state: Option<Py<PyAny>>,
     ) -> PyResult<StatefulPartition> {
         self.0
             .call_method1(
@@ -118,27 +123,28 @@ impl FixedPartitionedSink {
 }
 
 /// Represents a `bytewax.outputs.StatefulSinkPartition` in Python.
-struct StatefulPartition(Py<PyAny>);
+struct StatefulPartition(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatefulPartition {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for StatefulPartition {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.outputs")?
+            .import("bytewax.outputs")?
             .getattr("StatefulSinkPartition")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "stateful sink partition must subclass `bytewax.outputs.StatefulSinkPartition`",
             ))
-        } else {
-            Ok(Self(ob.to_object(py)))
         }
     }
 }
 
 impl StatefulPartition {
-    fn write_batch(&self, py: Python, values: Vec<PyObject>) -> PyResult<()> {
+    fn write_batch(&self, py: Python, values: Vec<Py<PyAny>>) -> PyResult<()> {
         let _ = self
             .0
             .call_method1(py, intern!(py, "write_batch"), (values,))?;
@@ -150,16 +156,29 @@ impl StatefulPartition {
     }
 
     fn close(&self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close")?;
+        let _ = self.0.call_method0(py, intern!(py, "close"))?;
         Ok(())
     }
 }
 
 impl Drop for StatefulPartition {
     fn drop(&mut self) {
-        unwrap_any!(
-            Python::with_gil(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
-        );
+        #[cfg(Py_3_13)]
+        if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
+            return;
+        }
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                if std::thread::panicking() {
+                    // During unwinding, avoid double-panic (which aborts).
+                    err.write_unraisable(py, None);
+                } else {
+                    // Normal path: propagate close errors via panic
+                    // so the dataflow reports failure on data-loss.
+                    unwrap_any!(Err::<(), _>(err));
+                }
+            }
+        });
     }
 }
 
@@ -181,8 +200,9 @@ impl PartitionFn<StateKey> for PartitionAssigner {
         // IO operators, we don't have access to batches. TBH probably
         // this will go away with 2PC being worked into `stateful`
         // operator in Python.
-        unwrap_any!(Python::with_gil(|py| self.part_fn(py, key))
-            .reraise("error assigning output partition"))
+        unwrap_any!(
+            Python::attach(|py| self.part_fn(py, key)).reraise("error assigning output partition")
+        )
     }
 }
 
@@ -251,36 +271,38 @@ where
         let item_inp_count = meter
             .u64_counter("item_inp_count")
             .with_description("number of items this step has ingested")
-            .init();
+            .build();
         let write_batch_histogram = meter
             .f64_histogram("out_part_write_batch_duration_seconds")
             .with_description("`write_batch` duration in seconds")
-            .init();
+            .build();
         let snapshot_histogram = meter
             .f64_histogram("snapshot_duration_seconds")
             .with_description("`snapshot` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
         ];
 
         op_builder.build(move |init_caps| {
+            // First `StateKey` is partition, second is data
+            // routing.
+            type PartToInBufferMap = BTreeMap<StateKey, Vec<(StateKey, TdPyAny)>>;
+
             let parts: BTreeMap<StateKey, StatefulPartition> = BTreeMap::new();
             // Which partitions were written to in this epoch. We only
             // snapshot those.
             let awoken: BTreeSet<StateKey> = BTreeSet::new();
 
             let mut routed_tmp = Vec::new();
-            // First `StateKey` is partition, second is data
-            // routing.
-            type PartToInBufferMap = BTreeMap<StateKey, Vec<(StateKey, TdPyAny)>>;
             let mut items_inbuf: BTreeMap<S::Timestamp, PartToInBufferMap> = BTreeMap::new();
             let mut loads_inbuf = InBuffer::new();
             let mut ncater = EagerNotificator::new(init_caps, (parts, awoken));
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
+                    #[allow(clippy::iter_with_drain)]
                     routed_input.for_each(|cap, incoming| {
                         let epoch = cap.time();
                         assert!(routed_tmp.is_empty());
@@ -310,7 +332,7 @@ where
                             // need to ensure that writes happen in epoch
                             // order.
                             if let Some(part_to_items) = items_inbuf.remove(epoch) {
-                                Python::with_gil(|py| {
+                                Python::attach(|py| {
                                     for (part_key, items) in part_to_items {
                                         let part = parts
                                             .entry(part_key.clone())
@@ -318,9 +340,10 @@ where
                                             // this partition, lazily create
                                             // it.
                                             .or_insert_with_key(|part_key| {
-                                                unwrap_any!(sink
-                                                    .build_part(py, &step_id, part_key, None)
-                                                    .reraise("error init StatefulSink"))
+                                                unwrap_any!(
+                                                    sink.build_part(py, &step_id, part_key, None)
+                                                        .reraise("error init StatefulSink")
+                                                )
                                             });
 
                                         let batch: Vec<_> =
@@ -335,7 +358,7 @@ where
                                         awoken.insert(part_key);
                                     }
                                 });
-                            };
+                            }
                         },
                         |caps, (parts, awoken)| {
                             let clock_cap = &caps[0];
@@ -357,11 +380,13 @@ where
                             // that had data, otherwise we'll snapshot
                             // as loads are happening.
                             while let Some(part_key) = awoken.pop_first() {
+                                // TODO: Convert to proper error handling with `?` operator.
+                                #[allow(clippy::unwrap_used)]
                                 let part = parts.get(&part_key).unwrap();
                                 let state = with_timer!(
                                     snapshot_histogram,
                                     labels,
-                                    unwrap_any!(Python::with_gil(|py| part
+                                    unwrap_any!(Python::attach(|py| part
                                         .snapshot(py)
                                         .reraise("error snapshotting StatefulSink")))
                                 );
@@ -380,7 +405,7 @@ where
                                     if worker == this_worker {
                                         match change {
                                             StateChange::Upsert(state) => {
-                                                let part = unwrap_any!(Python::with_gil(|py| {
+                                                let part = unwrap_any!(Python::attach(|py| {
                                                     sink.build_part(
                                                         py,
                                                         &step_id,
@@ -412,19 +437,20 @@ where
 
 /// Represents a `bytewax.outputs.DynamicSink` from Python.
 #[derive(Clone)]
-pub(crate) struct DynamicSink(Py<PyAny>);
+pub(crate) struct DynamicSink(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for DynamicSink {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for DynamicSink {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.outputs")?.getattr("DynamicSink")?;
-        if !ob.is_instance(&abc)? {
+        let abc = py.import("bytewax.outputs")?.getattr("DynamicSink")?;
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "dynamic sink must subclass `bytewax.outputs.DynamicSink`",
             ))
-        } else {
-            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -438,33 +464,38 @@ impl DynamicSink {
         count: WorkerCount,
     ) -> PyResult<StatelessPartition> {
         self.0
-            .call_method1(py, "build", (step_id.clone(), index.0, count.0))?
+            .call_method1(
+                py,
+                intern!(py, "build"),
+                (step_id.clone(), index.0, count.0),
+            )?
             .extract(py)
     }
 }
 
 /// Represents a `bytewax.outputs.StatelessSinkPartition` in Python.
-struct StatelessPartition(Py<PyAny>);
+struct StatelessPartition(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatelessPartition {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for StatelessPartition {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.outputs")?
+            .import("bytewax.outputs")?
             .getattr("StatelessSinkPartition")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "stateless sink partition must subclass `bytewax.outputs.StatelessSinkPartition`",
             ))
-        } else {
-            Ok(Self(ob.to_object(py)))
         }
     }
 }
 
 impl StatelessPartition {
-    fn write_batch(&self, py: Python, items: Vec<PyObject>) -> PyResult<()> {
+    fn write_batch(&self, py: Python, items: Vec<Py<PyAny>>) -> PyResult<()> {
         let _ = self
             .0
             .call_method1(py, intern!(py, "write_batch"), (items,))?;
@@ -472,16 +503,29 @@ impl StatelessPartition {
     }
 
     fn close(&self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close")?;
+        let _ = self.0.call_method0(py, intern!(py, "close"))?;
         Ok(())
     }
 }
 
 impl Drop for StatelessPartition {
     fn drop(&mut self) {
-        unwrap_any!(Python::with_gil(|py| self
-            .close(py)
-            .reraise("error closing StatelessSinkPartition")));
+        #[cfg(Py_3_13)]
+        if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
+            return;
+        }
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                if std::thread::panicking() {
+                    // During unwinding, avoid double-panic (which aborts).
+                    err.write_unraisable(py, None);
+                } else {
+                    // Normal path: propagate close errors via panic
+                    // so the dataflow reports failure on data-loss.
+                    unwrap_any!(Err::<(), _>(err));
+                }
+            }
+        });
     }
 }
 
@@ -519,13 +563,13 @@ where
         let item_inp_count = meter
             .u64_counter("item_inp_count")
             .with_description("number of items this step has ingested")
-            .init();
+            .build();
         let write_batch_histogram = meter
             .f64_histogram("out_part_write_batch_duration_seconds")
             .with_description("`write_batch` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", worker_index.0.to_string()),
         ];
 
@@ -540,16 +584,15 @@ where
 
                         let mut output_session = output.session(&cap);
 
-                        let batch: Vec<PyObject> = tmp_incoming
-                            .split_off(0)
+                        let batch: Vec<Py<PyAny>> = std::mem::take(&mut tmp_incoming)
                             .into_iter()
-                            .map(|item| item.into())
+                            .map(std::convert::Into::into)
                             .collect();
                         item_inp_count.add(batch.len() as u64, &labels);
                         with_timer!(
                             write_batch_histogram,
                             &labels,
-                            unwrap_any!(Python::with_gil(|py| sink
+                            unwrap_any!(Python::attach(|py| sink
                                 .write_batch(py, batch)
                                 .reraise("error writing output batch")))
                         );

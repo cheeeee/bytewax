@@ -9,33 +9,32 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::BuildHasher;
 use std::hash::Hash;
-use std::hash::Hasher;
 use std::time::Duration;
 
 use num::CheckedSub;
-use opentelemetry::global;
 use opentelemetry::KeyValue;
+use opentelemetry::global;
 use serde::Deserialize;
 use serde::Serialize;
+use timely::Data;
+use timely::ExchangeData;
 use timely::communication::message::RefOrMut;
+use timely::dataflow::Scope;
+use timely::dataflow::Stream;
 use timely::dataflow::channels::pact::Exchange;
 use timely::dataflow::channels::pact::ParallelizationContract;
 use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::generic::operator::empty;
-use timely::dataflow::operators::generic::InputHandle;
 use timely::dataflow::operators::Broadcast;
 use timely::dataflow::operators::Capability;
 use timely::dataflow::operators::Exchange as ExchangeOp;
 use timely::dataflow::operators::Map;
-use timely::dataflow::Scope;
-use timely::dataflow::Stream;
+use timely::dataflow::operators::generic::InputHandle;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
+use timely::dataflow::operators::generic::operator::empty;
 use timely::order::TotalOrder;
-use timely::progress::frontier::MutableAntichain;
 use timely::progress::Timestamp;
+use timely::progress::frontier::MutableAntichain;
 use timely::worker::AsWorker;
-use timely::Data;
-use timely::ExchangeData;
 
 use crate::with_timer;
 
@@ -58,7 +57,7 @@ where
     T: Timestamp,
     D: Clone,
 {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             tmp: Vec::new(),
             buffer: BTreeMap::new(),
@@ -128,7 +127,7 @@ where
     T: Timestamp + TotalOrder,
 {
     fn simplify(&self) -> Option<T> {
-        self.iter().flat_map(|ma| ma.simplify()).min()
+        self.iter().filter_map(FrontierEx::simplify).min()
     }
 }
 
@@ -173,7 +172,7 @@ where
 {
     /// We have to retain separate capabilities per-output. This seems
     /// to be only documented in
-    /// https://github.com/TimelyDataflow/timely-dataflow/pull/187
+    /// <https://github.com/TimelyDataflow/timely-dataflow/pull/187>
     caps_state: Option<(Vec<Capability<T>>, D)>,
     queue: BTreeSet<T>,
 }
@@ -182,7 +181,7 @@ impl<T, D> EagerNotificator<T, D>
 where
     T: Timestamp + TotalOrder,
 {
-    pub(crate) fn new(init_caps: Vec<Capability<T>>, init_state: D) -> Self {
+    pub(crate) const fn new(init_caps: Vec<Capability<T>>, init_state: D) -> Self {
         Self {
             caps_state: Some((init_caps, init_state)),
             queue: BTreeSet::new(),
@@ -311,7 +310,7 @@ pub(crate) struct WorkerCount(pub(crate) usize);
 
 impl WorkerCount {
     /// Iterate through all workers in this cluster.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = WorkerIndex> {
+    pub(crate) fn iter(self) -> impl Iterator<Item = WorkerIndex> {
         (0..self.0).map(WorkerIndex)
     }
 }
@@ -369,6 +368,8 @@ where
         let (mut output, items) = op_builder.new_output();
 
         op_builder.build(move |mut init_caps| {
+            // Infallible: Timely guarantees init_caps count matches operator output count.
+            #[allow(clippy::unwrap_used)]
             let mut cap = init_caps.pop().unwrap();
             cap.downgrade(&epoch);
             let mut state = Some((cap, self));
@@ -458,9 +459,7 @@ where
     K: Hash,
 {
     fn assign(&self, key: &K) -> usize {
-        let mut hasher = self.build_hasher();
-        key.hash(&mut hasher);
-        hasher.finish() as usize
+        self.hash_one(key) as usize
     }
 }
 
@@ -537,16 +536,15 @@ where
 
                                 let mut handle = partd_output.activate();
                                 let mut session = handle.session(cap);
-                                let len = known.len();
+                                // Pre-compute Vec for O(1) indexed access
+                                // instead of O(n) BTreeSet::iter().nth().
+                                let parts_vec: Vec<_> = known.iter().collect();
+                                let len = parts_vec.len();
                                 for (key, value) in items {
                                     let idx = pf.assign(&key);
                                     let wrapped_idx = idx % len;
                                     tracing::trace!("Assigner gave value {idx} % {len}; wrapped to {wrapped_idx}");
-                                    let part = known
-                                        .iter()
-                                        .nth(wrapped_idx)
-                                        .expect("hash idx was not in len of known parts")
-                                        .clone();
+                                    let part = parts_vec[wrapped_idx].clone();
                                     session.give((part, (key, value)));
                                 }
                             }
@@ -572,6 +570,8 @@ where
 /// load balance worker use.
 ///
 /// This will only be run on worker 0, but results will be broadcast.
+// Infallible: all .get().unwrap() calls use keys obtained from iterating the same map.
+#[allow(clippy::unwrap_used)]
 fn calc_primaries<P>(known: &BTreeMap<P, BTreeSet<WorkerIndex>>) -> BTreeMap<P, WorkerIndex>
 where
     P: Clone + Ord + Eq,
@@ -640,7 +640,7 @@ where
     S::Timestamp: TotalOrder,
     P: ExchangeData + Ord + Eq + Debug,
 {
-    fn assign_primaries(&self, name: String) -> Stream<S, (P, WorkerIndex)> {
+    fn assign_primaries(&self, name: String) -> Self {
         // Route all data to worker 0, this means that only worker 0
         // will assign primaries. We'll broadcast them at the end of
         // this operator.
@@ -681,9 +681,10 @@ where
                             let epoch = cap.time();
 
                             let new_primaries = calc_primaries(known);
-                            if new_primaries.is_empty() {
-                                panic!("No partitions found on any worker; did you forget to init them?");
-                            }
+                            assert!(
+                                !new_primaries.is_empty(),
+                                "No partitions found on any worker; did you forget to init them?"
+                            );
 
                             let mut handle = routing_output.activate();
                             let mut session = handle.session(cap);
@@ -863,6 +864,7 @@ where
     K: ExchangeData + Debug,
     V: ExchangeData,
 {
+    #[allow(clippy::iter_with_drain)]
     fn partd_write<P, W>(
         &self,
         name: String,
@@ -880,7 +882,7 @@ where
         let histogram = meter
             .f64_histogram("partd_write_duration_seconds")
             .with_description("partitioned state write duration in seconds")
-            .init();
+            .build();
         let worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
         // Create a map of metric labels to use for each part_id
         let part_label_map: HashMap<P, Vec<KeyValue>> = local_parts
@@ -962,7 +964,7 @@ where
 
                                 let labels = part_label_map
                                     .get(&part_key)
-                                    .expect("No metric labels found for part key {part_key}");
+                                    .unwrap_or_else(|| panic!("No metric labels found for part key {part_key}"));
                                 with_timer!(histogram, labels, part.write_batch(items));
                             }
                         }
@@ -1093,6 +1095,7 @@ where
     S: Scope,
     S::Timestamp: TotalOrder,
 {
+    #[allow(clippy::iter_with_drain)]
     fn partd_load<P, L>(
         &mut self,
         name: String,
@@ -1111,7 +1114,7 @@ where
         let histogram = meter
             .f64_histogram("partd_load_builder_duration_seconds")
             .with_description("partitioned state load duration in seconds")
-            .init();
+            .build();
         let worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
         // Create a map of metric labels to use for each part_id
         let part_label_map: HashMap<P, Vec<KeyValue>> = local_parts
@@ -1121,7 +1124,7 @@ where
                     part_key.clone(),
                     vec![
                         worker_label.clone(),
-                        KeyValue::new("name", name.to_string()),
+                        KeyValue::new("name", name.clone()),
                         KeyValue::new("part_id", part_key.to_string()),
                     ],
                 )
@@ -1167,9 +1170,9 @@ where
 
                         for (part_key, worker) in inbuf.drain(..) {
                             if worker == this_worker {
-                                let labels = part_label_map
-                                    .get(&part_key)
-                                    .expect("No metric labels found for part key {part_key}");
+                                let labels = part_label_map.get(&part_key).unwrap_or_else(|| {
+                                    panic!("No metric labels found for part key {part_key}")
+                                });
                                 let part = with_timer!(histogram, labels, builder(&part_key));
                                 tracing::debug!("Init-ing {part_key} at epoch {epoch:?}");
                                 let entry = LoadPartEntry {
@@ -1247,8 +1250,8 @@ where
     /// function which knows how to build a partition on this worker
     /// if it is assigned to be primary for that partition.
     ///
-    /// "Committing" could mean GCing the recovery store, but it could
-    /// also mean ACKing input messages or other things.
+    /// "Committing" could mean `GCing` the recovery store, but it could
+    /// also mean `ACKing` input messages or other things.
     ///
     /// A delay can be specified so the epoch reported as committed is
     /// actually a certain amount behind the frontier epoch of the
@@ -1276,7 +1279,7 @@ where
         local_parts: Vec<P>,
         mut builder: impl FnMut(&P) -> L + 'static,
         delay: S::Timestamp,
-    ) -> ClockStream<S>
+    ) -> Self
     where
         P: ExchangeData + Ord + Eq + Debug,
         L: Committer<S::Timestamp> + 'static,
@@ -1350,5 +1353,148 @@ where
         });
 
         clock
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- calc_primaries tests ---
+
+    #[test]
+    fn calc_primaries_balanced_assignment() {
+        let mut known = BTreeMap::new();
+        known.insert(0u32, BTreeSet::from([WorkerIndex(0), WorkerIndex(1)]));
+        known.insert(1, BTreeSet::from([WorkerIndex(0), WorkerIndex(1)]));
+
+        let primaries = calc_primaries(&known);
+
+        assert_eq!(primaries.len(), 2);
+        let workers: BTreeSet<_> = primaries.values().collect();
+        assert_eq!(workers.len(), 2);
+    }
+
+    #[test]
+    fn calc_primaries_single_worker() {
+        let mut known = BTreeMap::new();
+        known.insert(0u32, BTreeSet::from([WorkerIndex(0)]));
+        known.insert(1, BTreeSet::from([WorkerIndex(0)]));
+        known.insert(2, BTreeSet::from([WorkerIndex(0)]));
+
+        let primaries = calc_primaries(&known);
+
+        assert_eq!(primaries.len(), 3);
+        for (_, worker) in &primaries {
+            assert_eq!(*worker, WorkerIndex(0));
+        }
+    }
+
+    #[test]
+    fn calc_primaries_empty_input() {
+        let known: BTreeMap<u32, BTreeSet<WorkerIndex>> = BTreeMap::new();
+        let primaries = calc_primaries(&known);
+        assert!(primaries.is_empty());
+    }
+
+    #[test]
+    fn calc_primaries_many_partitions_few_workers() {
+        let mut known = BTreeMap::new();
+        for i in 0..4u32 {
+            known.insert(i, BTreeSet::from([WorkerIndex(0), WorkerIndex(1)]));
+        }
+
+        let primaries = calc_primaries(&known);
+
+        assert_eq!(primaries.len(), 4);
+        let w0_count = primaries.values().filter(|w| **w == WorkerIndex(0)).count();
+        let w1_count = primaries.values().filter(|w| **w == WorkerIndex(1)).count();
+        assert_eq!(w0_count, 2);
+        assert_eq!(w1_count, 2);
+    }
+
+    // --- InBuffer tests ---
+
+    #[test]
+    fn inbuffer_extend_and_remove() {
+        let mut buf: InBuffer<u64, i32> = InBuffer::new();
+        let mut data = vec![1, 2, 3];
+        buf.extend(10, RefOrMut::Mut(&mut data));
+
+        assert!(data.is_empty());
+
+        let removed = buf.remove(&10);
+        assert_eq!(removed, Some(vec![1, 2, 3]));
+        assert_eq!(buf.remove(&10), None);
+    }
+
+    #[test]
+    fn inbuffer_multiple_epochs() {
+        let mut buf: InBuffer<u64, i32> = InBuffer::new();
+        let mut data1 = vec![1, 2];
+        let mut data2 = vec![3, 4];
+        buf.extend(10, RefOrMut::Mut(&mut data1));
+        buf.extend(20, RefOrMut::Mut(&mut data2));
+
+        let epochs: Vec<_> = buf.epochs().collect();
+        assert_eq!(epochs, vec![10, 20]);
+    }
+
+    #[test]
+    fn inbuffer_extend_same_epoch_appends() {
+        let mut buf: InBuffer<u64, i32> = InBuffer::new();
+        let mut data1 = vec![1, 2];
+        let mut data2 = vec![3, 4];
+        buf.extend(10, RefOrMut::Mut(&mut data1));
+        buf.extend(10, RefOrMut::Mut(&mut data2));
+
+        let removed = buf.remove(&10);
+        assert_eq!(removed, Some(vec![1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn inbuffer_empty_epochs() {
+        let buf: InBuffer<u64, i32> = InBuffer::new();
+        let epochs: Vec<u64> = buf.epochs().collect();
+        assert!(epochs.is_empty());
+    }
+
+    // --- FrontierEx tests ---
+
+    #[test]
+    fn frontier_is_eof_when_empty() {
+        let frontier = MutableAntichain::<u64>::new();
+        assert!(frontier.is_eof());
+    }
+
+    #[test]
+    fn frontier_is_not_eof_when_open() {
+        let frontier = MutableAntichain::<u64>::new_bottom(0);
+        assert!(!frontier.is_eof());
+    }
+
+    #[test]
+    fn frontier_is_closed_for_past_epoch() {
+        let frontier = MutableAntichain::<u64>::new_bottom(5);
+        assert!(frontier.is_closed(&3));
+    }
+
+    #[test]
+    fn frontier_is_not_closed_for_current_epoch() {
+        let frontier = MutableAntichain::<u64>::new_bottom(5);
+        assert!(!frontier.is_closed(&5));
+    }
+
+    #[test]
+    fn frontier_is_not_closed_for_future_epoch() {
+        let frontier = MutableAntichain::<u64>::new_bottom(5);
+        assert!(!frontier.is_closed(&7));
+    }
+
+    #[test]
+    fn frontier_eof_means_all_closed() {
+        let frontier = MutableAntichain::<u64>::new();
+        assert!(frontier.is_closed(&0));
+        assert!(frontier.is_closed(&999));
     }
 }

@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from itertools import islice
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Union
 
+from typing_extensions import override
+
 from bytewax._bytewax import (
     cluster_main,
     run_main,
@@ -22,16 +24,15 @@ from bytewax.run import (
     _create_arg_parser,
     _EnvDefault,
 )
-from typing_extensions import override
 
 __all__ = [
     "TestingSink",
     "TestingSource",
     "TimeTestingGetter",
+    "cluster_main",
     "ffwd_iter",
     "poll_next_batch",
     "run_main",
-    "cluster_main",
 ]
 
 
@@ -87,6 +88,7 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
         ],
         batch_size: int,
         resume_state: Optional[int],
+        has_sentinels: bool = True,
     ):
         self._start_idx = 0 if resume_state is None else resume_state
         self._batch_size = batch_size
@@ -95,6 +97,7 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
         # Resume to one after the last completed read index.
         ffwd_iter(self._it, self._start_idx)
         self._raise: Optional[Exception] = None
+        self._has_sentinels = has_sentinels
 
     @override
     def next_batch(self) -> List[X]:
@@ -103,6 +106,18 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
         if self._next_awake is not None:
             self._next_awake = None
 
+        if not self._has_sentinels:
+            return self._next_batch_fast()
+        return self._next_batch_sentinel()
+
+    def _next_batch_fast(self) -> List[X]:
+        batch = list(islice(self._it, self._batch_size))
+        if len(batch) <= 0:
+            raise StopIteration()
+        self._start_idx += len(batch)
+        return batch  # type: ignore[return-value]
+
+    def _next_batch_sentinel(self) -> List[X]:
         batch = []
         for item in self._it:
             if isinstance(item, TestingSource.EOF):
@@ -209,6 +224,26 @@ class TestingSource(FixedPartitionedSource[X, int]):
         """
         self._ib = ib
         self._batch_size = batch_size
+        self._has_sentinels = self._detect_sentinels(ib)
+
+    @staticmethod
+    def _detect_sentinels(ib: Iterable) -> bool:
+        """Check if iterable may contain sentinel types.
+
+        Returns False for known sentinel-free types (range, etc.)
+        to enable a faster batch collection path.
+        """
+        if isinstance(ib, range):
+            return False
+        if isinstance(ib, (list, tuple)):
+            sentinel_types = (
+                TestingSource.EOF,
+                TestingSource.ABORT,
+                TestingSource.PAUSE,
+            )
+            return any(isinstance(item, sentinel_types) for item in ib)
+        # For generators/iterators, conservatively assume sentinels may be present.
+        return True
 
     @override
     def list_parts(self):
@@ -218,7 +253,9 @@ class TestingSource(FixedPartitionedSource[X, int]):
     def build_part(
         self, step_id: str, for_part: str, resume_state: Optional[int]
     ) -> _IterSourcePartition[X]:
-        return _IterSourcePartition(self._ib, self._batch_size, resume_state)
+        return _IterSourcePartition(
+            self._ib, self._batch_size, resume_state, self._has_sentinels
+        )
 
 
 class _ListSinkPartition(StatelessSinkPartition[X]):
@@ -274,7 +311,7 @@ def poll_next_batch(part, timeout=timedelta(seconds=5)):
     :raises TimeoutError: If no batch was returned within the timeout.
 
     """
-    batch = []
+    batch: List[Any] = []
     start = datetime.now(timezone.utc)
     while len(batch) <= 0:
         now = datetime.now(timezone.utc)

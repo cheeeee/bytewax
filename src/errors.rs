@@ -1,19 +1,18 @@
 use std::panic::Location;
 
-use pyo3::exceptions::PyException;
-use pyo3::import_exception;
-use pyo3::prelude::*;
-use pyo3::types::PyTracebackMethods;
-use pyo3::PyDowncastError;
+use pyo3::CastError;
 use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::PyTypeInfo;
 use pyo3::Python;
+use pyo3::exceptions::PyException;
+use pyo3::import_exception;
+use pyo3::types::PyTracebackMethods;
 
 import_exception!(bytewax.errors, BytewaxRuntimeError);
 
 /// A trait to build a python exception with a custom stacktrace from
-/// anything that can be converted into a PyResult.
+/// anything that can be converted into a `PyResult`.
 pub(crate) trait PythonException<T> {
     /// Only this needs to be implemented.
     fn into_pyresult(self) -> PyResult<T>;
@@ -33,7 +32,7 @@ pub(crate) trait PythonException<T> {
     {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
-            Python::with_gil(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, msg)))
+            Python::attach(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, msg)))
         })
     }
 
@@ -53,11 +52,11 @@ pub(crate) trait PythonException<T> {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             let msg = f();
-            Python::with_gil(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, &msg)))
+            Python::attach(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, &msg)))
         })
     }
 
-    /// Create a new BytewaxRuntimeError with a custom message, setting
+    /// Create a new `BytewaxRuntimeError` with a custom message, setting
     /// the current exception as it's cause.
     ///
     /// Example:
@@ -72,7 +71,7 @@ pub(crate) trait PythonException<T> {
     {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let new_err = BytewaxRuntimeError::new_err(format!("({caller}): {msg}"));
                 new_err.set_cause(py, Some(err));
                 new_err
@@ -80,7 +79,7 @@ pub(crate) trait PythonException<T> {
         })
     }
 
-    /// Create a new BytewaxRuntimeError with a custom message, setting
+    /// Create a new `BytewaxRuntimeError` with a custom message, setting
     /// the current exception as it's cause.
     ///
     /// Example:
@@ -96,7 +95,7 @@ pub(crate) trait PythonException<T> {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             let msg = f();
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let new_err = BytewaxRuntimeError::new_err(format!("({caller}): {msg}"));
                 new_err.set_cause(py, Some(err));
                 new_err
@@ -107,7 +106,7 @@ pub(crate) trait PythonException<T> {
 
 // The obvious implementation for PyResult
 impl<T> PythonException<T> for PyResult<T> {
-    fn into_pyresult(self) -> PyResult<T> {
+    fn into_pyresult(self) -> Self {
         self
     }
 }
@@ -143,13 +142,19 @@ impl<T> PythonException<T> for Result<T, Box<dyn std::error::Error>> {
     }
 }
 
-impl<T> PythonException<T> for Result<T, PyDowncastError<'_>> {
+impl<T> PythonException<T> for Result<T, CastError<'_, '_>> {
     fn into_pyresult(self) -> PyResult<T> {
         self.map_err(|err| PyErr::new::<PyException, _>(format!("{err}")))
     }
 }
 
-/// Use this function to create a PyErr with location tracking.
+impl<T> PythonException<T> for Result<T, std::num::ParseIntError> {
+    fn into_pyresult(self) -> PyResult<T> {
+        self.map_err(|err| PyErr::new::<PyException, _>(format!("{err}")))
+    }
+}
+
+/// Use this function to create a `PyErr` with location tracking.
 #[track_caller]
 pub(crate) fn tracked_err<PyErrType: PyTypeInfo>(msg: &str) -> PyErr {
     let caller = Location::caller();
@@ -159,15 +164,14 @@ pub(crate) fn tracked_err<PyErrType: PyTypeInfo>(msg: &str) -> PyErr {
 fn build_message(py: Python, caller: &Location, err: &PyErr, msg: &str) -> String {
     let msg = prepend_caller(caller, msg);
 
-    let err_msg = get_traceback(py, err)
-        .map(|tb| format!("{err}\n{tb}"))
-        .unwrap_or_else(|| format!("{err}"));
+    let err_msg =
+        get_traceback(py, err).map_or_else(|| format!("{err}"), |tb| format!("{err}\n{tb}"));
 
     format!("{msg}\nCaused by => {err_msg}")
 }
 
 fn get_traceback(py: Python, err: &PyErr) -> Option<String> {
-    err.traceback_bound(py).map(|tb| {
+    err.traceback(py).map(|tb| {
         tb.format()
             .unwrap_or_else(|_| "Unable to print traceback".to_string())
     })
@@ -176,4 +180,40 @@ fn get_traceback(py: Python, err: &PyErr) -> Option<String> {
 /// Prepend '({caller}) ' to the message
 fn prepend_caller(caller: &Location, msg: &str) -> String {
     format!("({caller}) {msg}")
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use pyo3::exceptions::PyValueError;
+
+    #[test]
+    fn parse_int_error_converts_to_pyresult() {
+        pyo3::Python::initialize();
+        let result: Result<u16, _> = "not_a_number".parse();
+        let py_result = result.into_pyresult();
+        assert!(py_result.is_err());
+    }
+
+    #[test]
+    fn parse_int_error_raise_produces_correct_type() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let result: PyResult<u16> = "not_a_number"
+                .parse::<u16>()
+                .raise::<PyValueError>("bad port");
+            assert!(result.unwrap_err().is_instance_of::<PyValueError>(py));
+        });
+    }
+
+    #[test]
+    fn tracked_err_includes_caller_location() {
+        pyo3::Python::initialize();
+        let err = tracked_err::<PyValueError>("test message");
+        let msg = err.to_string();
+        // Should contain the file location and the message
+        assert!(msg.contains("errors.rs"), "expected file in: {msg}");
+        assert!(msg.contains("test message"), "expected message in: {msg}");
+    }
 }

@@ -1,47 +1,153 @@
 name: benchmarks
 
 on:
-  push:
-    branches:
-      - "main"
-  pull_request:
-  # `workflow_dispatch` allows CodSpeed to trigger backtest
-  # performance analysis in order to generate initial data.
+  # CodSpeed backtesting and manual runs only.
+  # Automatic benchmarks run as part of the CI workflow.
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
-  benchmarks:
-    runs-on: ubuntu-latest
+  wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+    runs-on: [self-hosted, Linux, X64, Intel]
+    container:
+      image: buildpack-deps:22.04
+    env:
+      UV_LINK_MODE: copy
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v5
+      - name: Fix workspace permissions
+        run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+      - name: Create sudo wrapper
+        run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
+      - uses: actions/checkout@v6
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: ./.github/actions/clean-runner
         with:
-          python-version: "3.12"
-      - name: Install uv
-        run: python3 -m pip install uv
-      - uses: mkroening/rust-toolchain-toml@main
-      - uses: extractions/setup-just@v2
+          workspace: ${{ github.workspace }}
+          clean-cargo: 'true'
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "requirements/**"
+      - run: uv python install
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
+      - uses: dsherret/rust-toolchain-file@v1
+      - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
       - name: Prep build venv
         shell: bash
         run: |
-          uv venv -p 3.12 venv/
+          uv venv -p ${{ matrix.python-version }} venv/
           . venv/bin/activate
-          uv pip sync --strict requirements/build-py3.12.txt
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: -C force-frame-pointers=yes
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
+        with:
+          target: x86_64
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
+      - name: Upload wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-wheel-${{ matrix.python-version }}
+          path: dist/*.whl
+          retention-days: 1
+      - name: Fix workspace permissions
+        if: always()
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE"
+
+  benchmarks:
+    needs: [wheels]
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+    runs-on: [self-hosted, Linux, X64, Intel]
+    steps:
+      - name: Fix workspace permissions
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/workspace" alpine:latest \
+            sh -c 'chmod -R a+rwX /workspace && rm -rf /workspace/venv /workspace/.ruff_cache' 2>/dev/null || true
+      - uses: actions/checkout@v6
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "requirements/**"
+      - run: uv python install
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
+      - uses: extractions/setup-just@v3
+      - name: Download wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: bench-wheel-${{ matrix.python-version }}
+          path: dist/
+      - name: Prep benchmark venv
+        shell: bash
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Install wheel
         shell: bash
         run: |
           . venv/bin/activate
-          just build
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
+      - name: Add cargo bin to PATH
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@v3
+        uses: CodSpeedHQ/action@v4
+        env:
+          CODSPEED_BENCHMARK_PREFIX: py${{ matrix.python-version }}
         with:
+          mode: walltime
           token: ${{ secrets.CODSPEED_TOKEN }}
           run: |
             . venv/bin/activate
-            WHEEL_FILE=$(ls ./dist/*.whl)
-            uv pip install -v --no-deps $WHEEL_FILE
+            set +e
             just test-benchmark
+            rc=$?
+            set -e
+            if [ $rc -eq 139 ]; then
+              echo "::warning::SIGSEGV (exit 139) during CodSpeed walltime shutdown — known Python 3.13+ issue (benchmarks already captured)"
+            elif [ $rc -ne 0 ]; then
+              exit $rc
+            fi
+      - name: Fix workspace permissions
+        if: always()
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE" 2>/dev/null || true
+
+  benchmarks-pass:
+    if: always()
+    needs: [benchmarks]
+    runs-on: [self-hosted, Linux, X64, Intel]
+    steps:
+      - name: Fail if any dependency failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

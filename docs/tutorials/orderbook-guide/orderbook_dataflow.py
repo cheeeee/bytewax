@@ -36,7 +36,7 @@ async def _ws_agen(product_id):
         _type_: A tuple of the product_id and the message as a dictionary.
     """
     url = "wss://ws-feed.exchange.coinbase.com"
-    async with websockets.connect(url) as websocket:
+    async with websockets.connect(url, max_size=100_000_000) as websocket:
         msg = json.dumps(
             {
                 "type": "subscribe",
@@ -223,6 +223,8 @@ class OrderBookState:
         Returns:
             OrderBookSummary: A summary of the order book state.
         """
+        assert self.bid_price is not None  # noqa: S101
+        assert self.ask_price is not None  # noqa: S101
         return OrderBookSummary(
             bid_price=self.bid_price,
             bid_size=self.bids[self.bid_price],

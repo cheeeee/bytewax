@@ -36,7 +36,7 @@ def _locate_dataflow(module_name, dataflow_name):
 
     This is adapted from Flask's codebase.
     """
-    from bytewax.dataflow import Dataflow
+    from bytewax.dataflow import Dataflow  # noqa: PLC0415
 
     try:
         __import__(module_name)
@@ -144,7 +144,7 @@ class _EnvDefault(argparse.Action):
         if envvar:
             default = os.environ.get(envvar, default)
             kwargs["help"] += f" [env: {envvar}]"
-        super(_EnvDefault, self).__init__(default=default, **kwargs)
+        super().__init__(default=default, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, values)

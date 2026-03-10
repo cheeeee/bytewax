@@ -3,9 +3,9 @@
 //! For a user-centric version of recovery, read the
 //! `bytewax.recovery` Python module docstring. Read that first.
 
+use ahash::AHashMap;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fmt::Debug;
@@ -15,6 +15,7 @@ use std::hash::Hash;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use chrono::TimeDelta;
 use pyo3::create_exception;
@@ -24,32 +25,38 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
+use pyo3::types::PyString;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
-use rusqlite_migration::Migrations;
 use rusqlite_migration::M;
+use rusqlite_migration::Migrations;
 use seahash::SeaHasher;
 use serde::Deserialize;
 use serde::Serialize;
+use std::sync::LazyLock;
+use timely::Data;
+use timely::dataflow::Scope;
+use timely::dataflow::Stream;
 use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Broadcast;
 use timely::dataflow::operators::Concat;
 use timely::dataflow::operators::Delay;
 use timely::dataflow::operators::Map;
 use timely::dataflow::operators::Operator;
-use timely::dataflow::Scope;
-use timely::dataflow::Stream;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::progress::Timestamp;
-use timely::Data;
 use tracing::instrument;
 
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::inputs::EpochInterval;
 use crate::pyo3_extensions::TdPyAny;
-use crate::timely::*;
+use crate::timely::{
+    AsWorkerExt, BatchIterator, CapabilityIterEx, ClockStream, Committer, EagerNotificator,
+    FrontierEx, InBuffer, IntoStreamOnceAtOp, OpInputHandleEx, PartitionedCommitOp,
+    PartitionedLoadOp, PartitionedWriteOp, WorkerCount, WorkerIndex, Writer,
+};
 use crate::unwrap_any;
 
 /// IDs a specific recovery partition.
@@ -161,18 +168,23 @@ impl Default for BackupInterval {
     }
 }
 
-impl IntoPy<Py<PyAny>> for BackupInterval {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        self.0.into_py(py)
+impl<'py> IntoPyObject<'py> for BackupInterval {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0.into_pyobject(py).map(pyo3::Bound::into_any)
     }
 }
 
-impl<'py> FromPyObject<'py> for BackupInterval {
-    fn extract_bound(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for BackupInterval {
+    type Error = PyErr;
+    #[allow(clippy::option_if_let_else)]
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(duration) = obj.extract::<TimeDelta>() {
             Ok(Self(duration))
         } else {
-            Err(PyTypeError::new_err(
+            Err(tracked_err::<PyTypeError>(
                 "backup interval must be a `datetime.timedelta`",
             ))
         }
@@ -205,15 +217,12 @@ impl Default for ResumeFrom {
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, FromPyObject)]
 pub(crate) struct StepId(pub(crate) String);
 
-impl IntoPy<Py<PyAny>> for StepId {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        self.0.into_py(py)
-    }
-}
-
-impl ToPyObject for StepId {
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.0.to_object(py)
+impl<'py> IntoPyObject<'py> for StepId {
+    type Target = PyString;
+    type Output = Bound<'py, PyString>;
+    type Error = std::convert::Infallible;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0.into_pyobject(py)
     }
 }
 
@@ -236,14 +245,23 @@ impl std::fmt::Display for StepId {
 /// be hashable, have equality, debug printable, and is serde-able and
 /// we can't guarantee those things are correct on any arbitrary
 /// Python type.
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, FromPyObject,
-)]
-pub(crate) struct StateKey(pub(crate) String);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub(crate) struct StateKey(pub(crate) Arc<str>);
 
-impl IntoPy<Py<PyAny>> for StateKey {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        self.0.into_py(py)
+impl<'py> FromPyObject<'_, 'py> for StateKey {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+        let s: String = ob.extract()?;
+        Ok(Self(Arc::from(s)))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for StateKey {
+    type Target = PyString;
+    type Output = Bound<'py, PyString>;
+    type Error = std::convert::Infallible;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        (&*self.0).into_pyobject(py)
     }
 }
 
@@ -291,18 +309,18 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<Vec<u8>>);
 
 /// Configuration settings for recovery.
 ///
-/// :arg db_dir: Local filesystem directory to search for recovery
+/// :arg `db_dir`: Local filesystem directory to search for recovery
 ///     database partitions.
 ///
-/// :type db_dir: pathlib.Path
+/// :type `db_dir`: pathlib.Path
 ///
-/// :arg backup_interval: Amount of system time to wait to permanently
+/// :arg `backup_interval`: Amount of system time to wait to permanently
 ///     delete a state snapshot after it is no longer needed. You
 ///     should set this to the interval at which you are backing up
 ///     the recovery partitions off of the workers into archival
 ///     storage (e.g. S3). Defaults to zero duration.
 ///
-/// :type backup_interval: typing.Optional[datetime.timedelta]
+/// :type `backup_interval`: typing.Optional[datetime.timedelta]
 #[pyclass(module = "bytewax.recovery")]
 pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
@@ -314,6 +332,7 @@ pub(crate) struct RecoveryConfig {
 #[pymethods]
 impl RecoveryConfig {
     #[new]
+    #[pyo3(signature = (db_dir, backup_interval=None))]
     fn new(db_dir: PathBuf, backup_interval: Option<BackupInterval>) -> Self {
         Self {
             db_dir,
@@ -326,20 +345,19 @@ impl RecoveryConfig {
     /// Build the Rust-side bundle from the Python-side recovery
     /// config.
     #[instrument(name = "build_recovery", skip_all)]
-    pub(crate) fn build(&self, py: Python) -> PyResult<(RecoveryBundle, BackupInterval)> {
-        let mut part_paths = HashMap::new();
+    pub(crate) fn build(&self) -> PyResult<(RecoveryBundle, BackupInterval)> {
+        let mut part_paths = AHashMap::new();
         let sqlite_ext = OsStr::new("sqlite3");
         if !self.db_dir.is_dir() {
             return Err(PyFileNotFoundError::new_err(format!(
-                "recovery directory {:?} does not exist; see the `bytewax.recovery` module docstring for more info",
-                self.db_dir
+                "recovery directory {} does not exist; see the `bytewax.recovery` module docstring for more info",
+                self.db_dir.display()
             )));
         }
         for entry in fs::read_dir(self.db_dir.clone()).reraise("Error listing recovery DB dir")? {
             let path = entry.reraise("Error accessing recovery DB file")?.path();
-            if path.extension().map_or(false, |ext| *ext == *sqlite_ext) {
-                let part =
-                    RecoveryPart::open(py, &path).reraise("Error opening recovery DB file")?;
+            if path.extension().is_some_and(|ext| *ext == *sqlite_ext) {
+                let part = RecoveryPart::open(&path).reraise("Error opening recovery DB file")?;
                 let mut part_loader = part.part_loader();
                 while let Some(batch) = part_loader.next_batch() {
                     for PartitionMeta(index, _count) in batch {
@@ -352,7 +370,7 @@ impl RecoveryConfig {
 
         let bundle = RecoveryBundle {
             part_paths: Rc::new(part_paths),
-            built_parts: Rc::new(RefCell::new(HashMap::new())),
+            built_parts: Rc::new(RefCell::new(AHashMap::new())),
         };
         let backup_interval = self.backup_interval;
 
@@ -368,7 +386,7 @@ pub(crate) struct RecoveryBundle {
     /// [`new_builder`] need to retain a handle to this to be able to
     /// look up the relevant path. No [`RefCell`] because they don't
     /// need to modify it.
-    part_paths: Rc<HashMap<PartitionIndex, PathBuf>>,
+    part_paths: Rc<AHashMap<PartitionIndex, PathBuf>>,
     /// This is a cache of already built [`RecoveryDB`].
     ///
     /// The map itself is an [`Rc<RefCell>`] because the builder
@@ -377,7 +395,7 @@ pub(crate) struct RecoveryBundle {
     /// times. The values are [`Rc<RefCell<RecoveryDb>`] so that this
     /// cache and the Timely operators themselves all have ownership
     /// access to the partition.
-    built_parts: Rc<RefCell<HashMap<PartitionIndex, Rc<RefCell<RecoveryPart>>>>>,
+    built_parts: Rc<RefCell<AHashMap<PartitionIndex, Rc<RefCell<RecoveryPart>>>>>,
 }
 
 impl RecoveryBundle {
@@ -397,7 +415,7 @@ impl RecoveryBundle {
     ///
     /// This clones all the [`Rc`]s appropriately internally so that
     /// the cache is used.
-    fn new_builder(&self) -> impl FnMut(&PartitionIndex) -> Rc<RefCell<RecoveryPart>> {
+    fn new_builder(&self) -> impl FnMut(&PartitionIndex) -> Rc<RefCell<RecoveryPart>> + use<> {
         let part_paths = self.part_paths.clone();
         let built_parts = self.built_parts.clone();
         move |part_key| {
@@ -411,7 +429,7 @@ impl RecoveryBundle {
                             panic!("Trying to build RecoveryPartition for {part_key:?} but no path is known");
                         });
 
-                    let part = unwrap_any!(Python::with_gil(|py| RecoveryPart::open(py, path)));
+                    let part = unwrap_any!(Python::attach(|_py| RecoveryPart::open(path)));
 
                     Rc::new(RefCell::new(part))
                 })
@@ -432,7 +450,7 @@ impl<T> PythonException<T> for Result<T, rusqlite_migration::Error> {
     }
 }
 
-/// Wrapper around an SQLite DB connection with methods for our
+/// Wrapper around an `SQLite` DB connection with methods for our
 /// recovery operations.
 struct RecoveryPart {
     /// This is [`Rc<RefCell>`] so that our reader and writer structs
@@ -442,59 +460,53 @@ struct RecoveryPart {
 
 // The `'static` lifetime within [`Migrations`] is saying that the
 // [`str`]s composing the migrations are `'static`.
-//
-// Use [`GILOnceCell`] so we don't have to bring in a `lazy_static`
-// crate dep.
-static MIGRATIONS: GILOnceCell<Migrations<'static>> = GILOnceCell::new();
-
-fn get_migrations(py: Python) -> &Migrations<'static> {
-    MIGRATIONS.get_or_init(py, || {
-        Migrations::new(vec![
-            M::up(
-                "CREATE TABLE parts (
+static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
+    Migrations::new(vec![
+        M::up(
+            "CREATE TABLE parts (
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                  part_index INTEGER PRIMARY KEY NOT NULL CHECK (part_index >= 0),
                  part_count INTEGER NOT NULL CHECK (part_count > 0),
                  CHECK (part_index < part_count)
                  ) STRICT",
-            ),
-            // This is a sharded table.
-            M::up(
-                "CREATE TABLE exs (
+        ),
+        // This is a sharded table.
+        M::up(
+            "CREATE TABLE exs (
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                  ex_num INTEGER NOT NULL PRIMARY KEY,
                  worker_count INTEGER NOT NULL CHECK (worker_count > 0),
                  resume_epoch INTEGER NOT NULL
                  ) STRICT",
-            ),
-            // This is a sharded table.
-            //
-            // We can't do a foreign key constraint because we don't
-            // know what partition the row in `ex` will be in; we'd
-            // need a "sharded foreign key" kinda thing.
-            M::up(
-                "CREATE TABLE fronts (
+        ),
+        // This is a sharded table.
+        //
+        // We can't do a foreign key constraint because we don't
+        // know what partition the row in `ex` will be in; we'd
+        // need a "sharded foreign key" kinda thing.
+        M::up(
+            "CREATE TABLE fronts (
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                  ex_num INTEGER NOT NULL,
                  worker_index INTEGER NOT NULL CHECK (worker_index >= 0),
                  worker_frontier INTEGER NOT NULL,
                  PRIMARY KEY (ex_num, worker_index)
                  ) STRICT",
-            ),
-            // This is _not_ a sharded table. Commits affect a whole
-            // partition and thus will only be written to the same
-            // shard as partition definitions. We don't use a foreign
-            // key here, though so we don't have to deal with flow_id.
-            M::up(
-                "CREATE TABLE commits (
+        ),
+        // This is _not_ a sharded table. Commits affect a whole
+        // partition and thus will only be written to the same
+        // shard as partition definitions. We don't use a foreign
+        // key here, though so we don't have to deal with flow_id.
+        M::up(
+            "CREATE TABLE commits (
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                  part_index INTEGER PRIMARY KEY NOT NULL,
                  commit_epoch INTEGER NOT NULL
                  ) STRICT",
-            ),
-            // This is a sharded table.
-            M::up(
-                "CREATE TABLE snaps (
+        ),
+        // This is a sharded table.
+        M::up(
+            "CREATE TABLE snaps (
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                  step_id TEXT NOT NULL,
                  state_key TEXT NOT NULL,
@@ -502,27 +514,32 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
                  ser_change BLOB,
                  PRIMARY KEY (step_id, state_key, snap_epoch)
                  ) STRICT",
-            ),
-        ])
-    })
-}
+        ),
+    ])
+});
 
 #[test]
 fn migrations_valid() -> rusqlite_migration::Result<()> {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| get_migrations(py).validate())
+    MIGRATIONS.validate()
 }
 
 /// Setup our connection-level pragmas. Run this on each connection.
-fn setup_conn(py: Python, conn: &Rc<RefCell<Connection>>) {
+fn setup_conn(conn: &Rc<RefCell<Connection>>) -> PyResult<()> {
     let mut conn = conn.borrow_mut();
 
-    rusqlite::vtab::series::load_module(&conn).unwrap();
-    conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+    rusqlite::vtab::series::load_module(&conn)
+        .raise::<PyRuntimeError>("error loading SQLite series module")?;
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .raise::<PyRuntimeError>("error setting foreign_keys pragma")?;
     // These are recommended by Litestream.
-    conn.pragma_update(None, "journal_mode", "WAL").unwrap();
-    conn.pragma_update(None, "busy_timeout", "5000").unwrap();
-    get_migrations(py).to_latest(&mut conn).unwrap();
+    conn.pragma_update(None, "journal_mode", "WAL")
+        .raise::<PyRuntimeError>("error setting journal_mode pragma")?;
+    conn.pragma_update(None, "busy_timeout", "5000")
+        .raise::<PyRuntimeError>("error setting busy_timeout pragma")?;
+    MIGRATIONS
+        .to_latest(&mut conn)
+        .raise::<PyRuntimeError>("error running database migrations")?;
+    Ok(())
 }
 
 struct PartitionMetaWriter {
@@ -532,6 +549,8 @@ struct PartitionMetaWriter {
 impl Writer for PartitionMetaWriter {
     type Item = PartitionMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -556,6 +575,8 @@ struct ExecutionMetaWriter {
 impl Writer for ExecutionMetaWriter {
     type Item = ExecutionMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -582,6 +603,8 @@ struct FrontierWriter {
 impl Writer for FrontierWriter {
     type Item = FrontierMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -608,6 +631,8 @@ struct SerializedSnapshotWriter {
 impl Writer for SerializedSnapshotWriter {
     type Item = SerializedSnapshot;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -619,7 +644,7 @@ impl Writer for SerializedSnapshotWriter {
                  VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT (step_id, state_key, snap_epoch) DO UPDATE
                  SET ser_change = EXCLUDED.ser_change",
-                (step_id.0, state_key.0, snap_epoch.0, ser_change),
+                (step_id.0, &*state_key.0, snap_epoch.0, ser_change),
             )
             .unwrap();
         }
@@ -634,6 +659,8 @@ struct CommitWriter {
 impl Writer for CommitWriter {
     type Item = CommitMeta;
 
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
@@ -657,7 +684,7 @@ struct PartitionMetaLoader {
 }
 
 impl PartitionMetaLoader {
-    fn new(conn: Rc<RefCell<Connection>>) -> Self {
+    const fn new(conn: Rc<RefCell<Connection>>) -> Self {
         Self { conn, done: false }
     }
 }
@@ -665,8 +692,12 @@ impl PartitionMetaLoader {
 impl BatchIterator for PartitionMetaLoader {
     type Item = PartitionMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
-        if !self.done {
+        if self.done {
+            None
+        } else {
             let batch = self
                 .conn
                 .borrow_mut()
@@ -691,8 +722,6 @@ impl BatchIterator for PartitionMetaLoader {
                 .collect();
             self.done = true;
             Some(batch)
-        } else {
-            None
         }
     }
 }
@@ -703,7 +732,7 @@ struct ExecutionMetaLoader {
 }
 
 impl ExecutionMetaLoader {
-    fn new(conn: Rc<RefCell<Connection>>) -> Self {
+    const fn new(conn: Rc<RefCell<Connection>>) -> Self {
         Self { conn, done: false }
     }
 }
@@ -711,8 +740,12 @@ impl ExecutionMetaLoader {
 impl BatchIterator for ExecutionMetaLoader {
     type Item = ExecutionMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
-        if !self.done {
+        if self.done {
+            None
+        } else {
             let batch = self
                 .conn
                 .borrow_mut()
@@ -733,8 +766,6 @@ impl BatchIterator for ExecutionMetaLoader {
                 .collect();
             self.done = true;
             Some(batch)
-        } else {
-            None
         }
     }
 }
@@ -745,7 +776,7 @@ struct FrontierLoader {
 }
 
 impl FrontierLoader {
-    fn new(conn: Rc<RefCell<Connection>>) -> Self {
+    const fn new(conn: Rc<RefCell<Connection>>) -> Self {
         Self { conn, done: false }
     }
 }
@@ -753,8 +784,12 @@ impl FrontierLoader {
 impl BatchIterator for FrontierLoader {
     type Item = FrontierMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
-        if !self.done {
+        if self.done {
+            None
+        } else {
             let batch = self
                 .conn
                 .borrow()
@@ -775,8 +810,6 @@ impl BatchIterator for FrontierLoader {
                 .collect();
             self.done = true;
             Some(batch)
-        } else {
-            None
         }
     }
 }
@@ -800,7 +833,7 @@ struct SerializedSnapshotLoader {
 }
 
 impl SerializedSnapshotLoader {
-    fn new(conn: Rc<RefCell<Connection>>, before: ResumeEpoch, batch_size: usize) -> Self {
+    const fn new(conn: Rc<RefCell<Connection>>, before: ResumeEpoch, batch_size: usize) -> Self {
         Self {
             conn,
             before,
@@ -809,6 +842,8 @@ impl SerializedSnapshotLoader {
         }
     }
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn select(
         &self,
         cursor: Option<(&StepId, &StateKey)>,
@@ -843,14 +878,14 @@ impl SerializedSnapshotLoader {
             .query_map(
                 (
                     self.before.0,
-                    cursor_step_id.map(|s| &s.0),
-                    cursor_state_key.map(|s| &s.0),
+                    cursor_step_id.map(|s| s.0.as_str()),
+                    cursor_state_key.map(|s| &*s.0),
                     self.batch_size,
                 ),
                 |row| {
                     Ok(SerializedSnapshot(
                         StepId(row.get(0)?),
-                        StateKey(row.get(1)?),
+                        StateKey(Arc::from(row.get::<_, String>(1)?)),
                         SnapshotEpoch(row.get(2)?),
                         row.get(3)?,
                     ))
@@ -903,7 +938,7 @@ struct CommitLoader {
 }
 
 impl CommitLoader {
-    fn new(conn: Rc<RefCell<Connection>>) -> Self {
+    const fn new(conn: Rc<RefCell<Connection>>) -> Self {
         Self { conn, done: false }
     }
 }
@@ -911,8 +946,12 @@ impl CommitLoader {
 impl BatchIterator for CommitLoader {
     type Item = CommitMeta;
 
+    // TODO: Convert to proper error handling with `?` operator.
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn next_batch(&mut self) -> Option<Vec<Self::Item>> {
-        if !self.done {
+        if self.done {
+            None
+        } else {
             let batch = self
                 .conn
                 .borrow()
@@ -929,8 +968,6 @@ impl BatchIterator for CommitLoader {
                 .collect();
             self.done = true;
             Some(batch)
-        } else {
-            None
         }
     }
 }
@@ -943,6 +980,8 @@ struct RecoveryCommitter {
 impl Committer<u64> for RecoveryCommitter {
     /// This will be called when `epoch` is the earliest possible
     /// resume epoch.
+    // Infallible: in-memory SQLite Rc transaction on known schema.
+    #[allow(clippy::unwrap_used)]
     fn commit(&mut self, epoch: &u64) {
         tracing::trace!("Committing / GCing epoch {epoch:?}");
         let mut conn = self.conn.borrow_mut();
@@ -984,25 +1023,26 @@ impl Committer<u64> for RecoveryCommitter {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn gc_leaves_only_final_snap() {
-    pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    pyo3::Python::initialize();
+    let conn = RecoveryPart::init_open_mem();
     conn.snap_writer().write_batch(vec![
         SerializedSnapshot(
             StepId(String::from("step_1")),
-            StateKey(String::from("a")),
+            StateKey(Arc::from("a")),
             SnapshotEpoch(1),
             Some("PICKLED_DATA1".as_bytes().to_vec()),
         ),
         SerializedSnapshot(
             StepId(String::from("step_1")),
-            StateKey(String::from("a")),
+            StateKey(Arc::from("a")),
             SnapshotEpoch(2),
             Some("PICKLED_DATA2".as_bytes().to_vec()),
         ),
         SerializedSnapshot(
             StepId(String::from("step_1")),
-            StateKey(String::from("a")),
+            StateKey(Arc::from("a")),
             SnapshotEpoch(5),
             Some("PICKLED_DATA5".as_bytes().to_vec()),
         ),
@@ -1021,7 +1061,7 @@ fn gc_leaves_only_final_snap() {
         .unwrap()
         .query_map((), |row| {
             let step_id = StepId(row.get(0)?);
-            let state_key = StateKey(row.get(1)?);
+            let state_key = StateKey(Arc::from(row.get::<_, String>(1)?));
             let num_snaps: usize = row.get(2)?;
 
             Ok((step_id, state_key, num_snaps))
@@ -1066,7 +1106,7 @@ create_exception!(
 );
 
 impl RecoveryPart {
-    fn init(py: Python, file: &Path, index: PartitionIndex, count: PartitionCount) -> PyResult<()> {
+    fn init(file: &Path, index: PartitionIndex, count: PartitionCount) -> PyResult<()> {
         tracing::debug!("Init recovery partition {index:?} / {count:?} at {file:?}");
         let conn = Rc::new(RefCell::new(
             Connection::open_with_flags(
@@ -1077,17 +1117,16 @@ impl RecoveryPart {
             )
             .reraise("can't open recovery DB")?,
         ));
-        setup_conn(py, &conn);
+        setup_conn(&conn)?;
 
-        let _self = Self { conn };
-        _self
-            .part_writer()
+        let this = Self { conn };
+        this.part_writer()
             .write_batch(vec![PartitionMeta(index, count)]);
 
         Ok(())
     }
 
-    fn open(py: Python, file: &Path) -> PyResult<Self> {
+    fn open(file: &Path) -> PyResult<Self> {
         tracing::debug!("Opening recovery partition at {file:?}");
         let conn = Rc::new(RefCell::new(
             Connection::open_with_flags(
@@ -1096,14 +1135,16 @@ impl RecoveryPart {
             )
             .reraise("can't open recovery DB")?,
         ));
-        setup_conn(py, &conn);
+        setup_conn(&conn)?;
 
         Ok(Self { conn })
     }
 
-    fn init_open_mem(py: Python) -> Self {
+    // Infallible: in-memory SQLite open and setup cannot fail.
+    #[allow(clippy::unwrap_used)]
+    fn init_open_mem() -> Self {
         let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));
-        setup_conn(py, &conn);
+        setup_conn(&conn).unwrap();
 
         Self { conn }
     }
@@ -1174,15 +1215,17 @@ impl RecoveryPart {
     /// calculation.
     fn resume_from(&self) -> PyResult<ResumeFrom> {
         let mut conn = self.conn.borrow_mut();
-        let txn = conn.transaction().unwrap();
+        let txn = conn
+            .transaction()
+            .reraise("error starting recovery DB transaction")?;
 
         let part_counts = txn
             .prepare("SELECT DISTINCT(part_count) FROM parts")
-            .unwrap()
+            .reraise("error preparing part_count query")?
             .query_map((), |row| Ok(PartitionCount(row.get(0)?)))
-            .unwrap()
+            .reraise("error querying part counts")?
             .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+            .reraise("error collecting part counts")?;
         if part_counts.is_empty() {
             let msg = "No recovery partitions found on any worker; can't resume";
             return Err(NoPartitionsError::new_err(msg));
@@ -1195,11 +1238,11 @@ impl RecoveryPart {
         let expected_parts: BTreeSet<_> = part_count.iter().collect();
         let found_parts = txn
             .prepare("SELECT part_index FROM parts")
-            .unwrap()
+            .reraise("error preparing part_index query")?
             .query_map((), |row| Ok(PartitionIndex(row.get(0)?)))
-            .unwrap()
+            .reraise("error querying part indices")?
             .collect::<Result<BTreeSet<_>, _>>()
-            .unwrap();
+            .reraise("error collecting part indices")?;
         let missing_parts = &expected_parts - &found_parts;
         if !missing_parts.is_empty() {
             let msg = format!(
@@ -1244,7 +1287,7 @@ impl RecoveryPart {
                     Ok(ex_num.zip(resume_epoch).map(|(en, re)| ResumeFrom(en, re)))
                 },
             )
-            .unwrap()
+            .reraise("error querying resume epoch")?
             .unwrap_or_default();
 
         let ResumeFrom(_resume_ex, resume_epoch) = resume_from;
@@ -1252,11 +1295,11 @@ impl RecoveryPart {
         // been GC'd and so might be missing data in the resume epoch.
         let state_missing_parts = txn
             .prepare("SELECT part_index FROM commits WHERE commit_epoch > ?1")
-            .unwrap()
+            .reraise("error preparing commit_epoch query")?
             .query_map((resume_epoch.0,), |row| Ok(PartitionIndex(row.get(0)?)))
-            .unwrap()
+            .reraise("error querying state missing parts")?
             .collect::<Result<BTreeSet<_>, _>>()
-            .unwrap();
+            .reraise("error collecting state missing parts")?;
         if !state_missing_parts.is_empty() {
             let delayed_parts = &expected_parts - &state_missing_parts;
             let msg = format!(
@@ -1271,9 +1314,10 @@ impl RecoveryPart {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_only_parts() {
-    pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    pyo3::Python::initialize();
+    let conn = RecoveryPart::init_open_mem();
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
 
@@ -1283,9 +1327,10 @@ fn resume_from_only_parts() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_all_explict_fronts() {
-    pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    pyo3::Python::initialize();
+    let conn = RecoveryPart::init_open_mem();
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
     conn.ex_writer().write_batch(vec![ExecutionMeta(
@@ -1307,9 +1352,10 @@ fn resume_from_all_explict_fronts() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_default_fronts() {
-    pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    pyo3::Python::initialize();
+    let conn = RecoveryPart::init_open_mem();
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
     conn.ex_writer().write_batch(vec![ExecutionMeta(
@@ -1330,10 +1376,11 @@ fn resume_from_default_fronts() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn resume_from_inconsistent_error() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
-        let conn = RecoveryPart::init_open_mem(py);
+    pyo3::Python::initialize();
+    Python::attach(|py| {
+        let conn = RecoveryPart::init_open_mem();
         conn.part_writer().write_batch(vec![
             PartitionMeta(PartitionIndex(0), PartitionCount(2)),
             PartitionMeta(PartitionIndex(1), PartitionCount(2)),
@@ -1357,27 +1404,56 @@ fn resume_from_inconsistent_error() {
     });
 }
 
+#[test]
+#[allow(clippy::unwrap_used)]
+fn setup_conn_configures_db() {
+    pyo3::Python::initialize();
+    let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));
+    setup_conn(&conn).unwrap();
+
+    let conn_ref = conn.borrow();
+    // Verify busy_timeout pragma was set.
+    // (WAL journal_mode is not supported on in-memory databases.)
+    let busy_timeout: i64 = conn_ref
+        .pragma_query_value(None, "busy_timeout", |row| row.get(0))
+        .unwrap();
+    assert_eq!(busy_timeout, 5000);
+
+    // Verify migrations ran by checking that expected tables exist.
+    let table_count: i64 = conn_ref
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('parts', 'exs', 'fronts', 'commits', 'snaps')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(table_count, 5);
+}
+
 /// Create and init a set of empty recovery partitions.
 ///
-/// :arg db_dir: Local directory to create partitions in.
+/// :arg `db_dir`: Local directory to create partitions in.
 ///
-/// :type db_dir: pathlib.Path
+/// :type `db_dir`: pathlib.Path
 ///
 /// :arg count: Number of partitions to create.
 ///
 /// :type count: int
 #[pyfunction]
-fn init_db_dir(py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<()> {
-    tracing::warn!("Creating {count:?} recovery partitions in {db_dir:?}");
+fn init_db_dir(_py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<()> {
+    tracing::warn!(
+        "Creating {count:?} recovery partitions in {}",
+        db_dir.display()
+    );
     if !db_dir.is_dir() {
         return Err(PyFileNotFoundError::new_err(format!(
-            "recovery directory {:?} does not exist; please create it with `mkdir`",
-            db_dir
+            "recovery directory {} does not exist; please create it with `mkdir`",
+            db_dir.display()
         )));
     }
     for index in count.iter() {
         let part_file = db_dir.join(format!("part-{}.sqlite3", index.0));
-        RecoveryPart::init(py, &part_file, index, count)
+        RecoveryPart::init(&part_file, index, count)
             .reraise("error init-ing recovery partition")?;
     }
     Ok(())
@@ -1454,7 +1530,7 @@ where
                         let frontier = input_frontiers.simplify();
                         // EOF counts as progress. This will also filter
                         // out the flash of 0 epoch upon resume.
-                        let frontier_progressed = frontier.map_or(true, |f| f > *cap.time());
+                        let frontier_progressed = frontier.is_none_or(|f| f > *cap.time());
                         if frontier_progressed {
                             // There's no way to guarantee that "last
                             // frontier + 1" is actually the resume epoch
@@ -1468,7 +1544,7 @@ where
                             // epoch as one too small. That's fine, we
                             // just might resume further back than is
                             // optimal.
-                            let frontier_epoch = frontier.unwrap_or(*cap.time() + 1);
+                            let frontier_epoch = frontier.unwrap_or_else(|| *cap.time() + 1);
                             let front =
                                 FrontierMeta(ex_num, worker_index, WorkerFrontier(frontier_epoch));
                             tracing::trace!("Frontier now epoch {frontier_epoch:?}");
@@ -1521,25 +1597,26 @@ impl<S> SerializeSnapshotOp<S> for Stream<S, Snapshot>
 where
     S: Scope<Timestamp = u64>,
 {
+    #[allow(clippy::iter_with_drain)]
     fn ser_snap(&self) -> Stream<S, ((StepId, StateKey), SerializedSnapshot)> {
         // Effectively map-with-epoch.
         self.unary(Pipeline, "ser_snap", move |_init_cap, _info| {
             let mut inbuf = Vec::new();
-            let pickle = Python::with_gil(|py| unwrap_any!(py.import_bound("pickle")).unbind());
+            let pickle = Python::attach(|py| unwrap_any!(py.import("pickle")).unbind());
 
             move |snaps_input, ser_snaps_output| {
                 snaps_input.for_each(|cap, incoming| {
                     incoming.swap(&mut inbuf);
 
                     let epoch = cap.time();
-                    Python::with_gil(|py| {
+                    Python::attach(|py| {
                         let ser_snaps =
                             inbuf
                                 .drain(..)
                                 .map(|Snapshot(step_id, state_key, snap_change)| {
                                     let ser_change = match snap_change {
                                         StateChange::Upsert(snap) => {
-                                            let snap = PyObject::from(snap);
+                                            let snap = <Py<PyAny>>::from(snap);
                                             let bytes = unwrap_any!(|| -> PyResult<Vec<u8>> {
                                                 Ok(pickle
                                                     .bind(py)
@@ -1547,7 +1624,7 @@ where
                                                         intern!(py, "dumps"),
                                                         (snap.bind(py),),
                                                     )?
-                                                    .downcast::<PyBytes>()?
+                                                    .cast::<PyBytes>()?
                                                     .as_bytes()
                                                     .to_vec())
                                             }(
@@ -1588,18 +1665,16 @@ impl<S> DeserializeSnapshotOp<S> for Stream<S, SerializedSnapshot>
 where
     S: Scope,
 {
+    #[allow(clippy::option_if_let_else)]
     fn de_snap(&self) -> Stream<S, Snapshot> {
         self.map(
             move |SerializedSnapshot(step_id, state_key, _snap_epoch, ser_change)| {
                 let snap_change = match ser_change {
                     Some(ser_snap) => {
-                        let snap = unwrap_any!(Python::with_gil(|py| -> PyResult<PyObject> {
-                            let pickle = py.import_bound("pickle")?;
+                        let snap = unwrap_any!(Python::attach(|py| -> PyResult<Py<PyAny>> {
+                            let pickle = py.import("pickle")?;
                             Ok(pickle
-                                .call_method1(
-                                    intern!(py, "loads"),
-                                    (PyBytes::new_bound(py, &ser_snap),),
-                                )?
+                                .call_method1(intern!(py, "loads"), (PyBytes::new(py, &ser_snap),))?
                                 .unbind())
                         }));
                         StateChange::Upsert(snap.into())
@@ -1723,8 +1798,7 @@ where
                 BuildHasherDefault::<SeaHasher>::default(),
                 move |part_key| {
                     let part = new_ex_part(part_key);
-                    let writer = part.borrow().ex_writer();
-                    writer
+                    part.borrow().ex_writer()
                 },
             );
 
@@ -1738,8 +1812,7 @@ where
             BuildHasherDefault::<SeaHasher>::default(),
             move |part_key| {
                 let part = new_snap_part(part_key);
-                let writer = part.borrow().snap_writer();
-                writer
+                part.borrow().snap_writer()
             },
         );
 
@@ -1755,8 +1828,7 @@ where
                 BuildHasherDefault::<SeaHasher>::default(),
                 move |part_key| {
                     let part = new_front_part(part_key);
-                    let writer = part.borrow().front_writer();
-                    writer
+                    part.borrow().front_writer()
                 },
             )
             .broadcast()
@@ -1765,8 +1837,7 @@ where
                 local_parts,
                 move |part_key| {
                     let part = new_commit_part(part_key);
-                    let committer = part.borrow().committer(*part_key);
-                    committer
+                    part.borrow().committer(*part_key)
                 },
                 epoch_interval.epochs_per(backup_interval.0),
             )
@@ -1831,8 +1902,8 @@ impl ReadProgressOp for RecoveryBundle {
 pub(crate) struct ResumeCalc(RecoveryPart);
 
 impl ResumeCalc {
-    pub(crate) fn new(py: Python) -> Self {
-        Self(RecoveryPart::init_open_mem(py))
+    pub(crate) fn new() -> Self {
+        Self(RecoveryPart::init_open_mem())
     }
 
     pub(crate) fn resume_from(&self) -> PyResult<ResumeFrom> {
@@ -1937,15 +2008,37 @@ pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RecoveryConfig>()?;
     m.add(
         "InconsistentPartitionsError",
-        py.get_type_bound::<InconsistentPartitionsError>(),
+        py.get_type::<InconsistentPartitionsError>(),
     )?;
     m.add(
         "MissingPartitionsError",
-        py.get_type_bound::<MissingPartitionsError>(),
+        py.get_type::<MissingPartitionsError>(),
     )?;
-    m.add(
-        "NoPartitionsError",
-        py.get_type_bound::<NoPartitionsError>(),
-    )?;
+    m.add("NoPartitionsError", py.get_type::<NoPartitionsError>())?;
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use pyo3::exceptions::PyTypeError;
+
+    #[test]
+    fn backup_interval_rejects_non_timedelta() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let obj = 42i32.into_pyobject(py).unwrap().into_any();
+            let result = BackupInterval::extract(obj.as_borrowed());
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(err.is_instance_of::<PyTypeError>(py));
+            let msg = err.to_string();
+            assert!(msg.contains("recovery.rs"), "expected file in: {msg}");
+            assert!(
+                msg.contains("backup interval"),
+                "expected message in: {msg}"
+            );
+        });
+    }
 }

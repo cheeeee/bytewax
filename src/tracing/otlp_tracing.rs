@@ -1,10 +1,8 @@
-use opentelemetry::runtime::Tokio;
-use opentelemetry::sdk::trace::config;
-use opentelemetry::sdk::trace::Sampler;
-use opentelemetry::sdk::trace::Tracer;
-use opentelemetry::sdk::Resource;
-use opentelemetry::KeyValue;
+use opentelemetry_otlp::SpanExporter;
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::trace::Sampler;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
@@ -24,19 +22,19 @@ use super::TracingConfig;
 /// This is the recommended approach since it allows the maximum
 /// flexibility in what to do with all the data bytewax can generate.
 ///
-/// :arg service_name: Identifies this dataflow in OTLP.
+/// :arg `service_name`: Identifies this dataflow in OTLP.
 ///
-/// :type service_name: str
+/// :type `service_name`: str
 ///
 /// :arg url: Connection info. Defaults to `"grpc:://127.0.0.1:4317"`.
 ///
 /// :type url: str
 ///
-/// :arg sampling_ratio: Fraction of traces to send between `0.0` and
+/// :arg `sampling_ratio`: Fraction of traces to send between `0.0` and
 ///     `1.0`.
 ///
-/// :type sampling_ratio: float
-#[pyclass(module="bytewax.tracing", extends=TracingConfig)]
+/// :type `sampling_ratio`: float
+#[pyclass(module="bytewax.tracing", extends=TracingConfig, from_py_object)]
 #[derive(Clone)]
 pub(crate) struct OtlpTracingConfig {
     #[pyo3(get)]
@@ -51,7 +49,7 @@ pub(crate) struct OtlpTracingConfig {
 impl OtlpTracingConfig {
     #[new]
     #[pyo3(signature=(service_name, url=None, sampling_ratio=1.0))]
-    fn new(
+    const fn new(
         service_name: String,
         url: Option<String>,
         sampling_ratio: f64,
@@ -67,28 +65,32 @@ impl OtlpTracingConfig {
 }
 
 impl TracerBuilder for OtlpTracingConfig {
-    fn build(&self) -> PyResult<Tracer> {
-        // Instantiate the builder
-        let mut exporter = opentelemetry_otlp::new_exporter().tonic();
+    #[allow(clippy::significant_drop_tightening)]
+    fn build(&self) -> PyResult<SdkTracerProvider> {
+        // Build the OTLP span exporter
+        let mut exporter_builder = SpanExporter::builder().with_tonic();
 
         // Change the url if required
         if let Some(endpoint) = self.url.as_ref() {
-            exporter = exporter.with_endpoint(endpoint);
+            exporter_builder = exporter_builder.with_endpoint(endpoint);
         }
 
-        // Create the tracer
-        opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_exporter(exporter)
-            .with_trace_config(
-                config()
-                    .with_sampler(Sampler::TraceIdRatioBased(self.sampling_ratio))
-                    .with_resource(Resource::new(vec![KeyValue::new(
-                        "service.name",
-                        self.service_name.clone(),
-                    )])),
-            )
-            .install_batch(Tokio)
-            .raise::<PyRuntimeError>("error installing tracer")
+        let exporter = exporter_builder
+            .build()
+            .raise::<PyRuntimeError>("error building OTLP exporter")?;
+
+        // Build the resource
+        let resource = Resource::builder()
+            .with_service_name(self.service_name.clone())
+            .build();
+
+        // Build the tracer provider
+        let provider = SdkTracerProvider::builder()
+            .with_batch_exporter(exporter)
+            .with_sampler(Sampler::TraceIdRatioBased(self.sampling_ratio))
+            .with_resource(resource)
+            .build();
+
+        Ok(provider)
     }
 }

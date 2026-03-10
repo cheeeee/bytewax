@@ -16,7 +16,7 @@ S = TypeVar("S")
 """Type of state snapshots."""
 
 
-class Sink(ABC, Generic[X]):  # noqa: B024
+class Sink(ABC, Generic[X]):
     """A destination to write output items.
 
     Base class for all output sinks. Do not subclass this.

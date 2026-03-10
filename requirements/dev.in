@@ -5,6 +5,7 @@
 ipython
 mypy
 pip  # Remove once we have a version of maturin with --uv.
+pip-audit
 pre-commit
 ruff
 sphinx-autobuild

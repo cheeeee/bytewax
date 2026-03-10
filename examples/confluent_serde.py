@@ -141,7 +141,7 @@ val_ser = AvroSerializer(client, val_schema.schema_str)
 serialized = kop.serialize("ser", avgs, key_serializer=key_ser, val_serializer=val_ser)
 
 op.inspect("inspect-serialized", serialized)
-kop.output(
+kop.output(  # type: ignore[arg-type]
     "kafka-out",
     serialized,
     brokers=KAFKA_BROKERS,

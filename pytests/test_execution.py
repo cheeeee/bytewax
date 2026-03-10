@@ -48,9 +48,8 @@ def test_reraises_custom_exception(entry_point):
     out = []
     op.output("out", stream, TestingSink(out))
 
-    with raises(BytewaxRuntimeError):
-        with raises(CustomException):
-            entry_point(flow)
+    with raises(BytewaxRuntimeError), raises(CustomException):
+        entry_point(flow)
 
     assert len(out) < 3
 

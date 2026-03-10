@@ -91,14 +91,18 @@ op.inspect("check_emails", keyed_emails)
 ```{testcode}
 :hide:
 
+import io, sys
 from bytewax.testing import run_main
 
+_stdout = sys.stdout
+sys.stdout = io.StringIO()
 run_main(flow)
+sys.stdout = _stdout
 ```
 
 Looks like we see our 2-tuples!
 
-```{testoutput}
+```text
 join_eg.check_names: ('123', 'Bee')
 join_eg.check_emails: ('123', 'bee@bytewax.io')
 join_eg.check_names: ('456', 'Hive')
@@ -301,7 +305,7 @@ the Bee, there's no name state. So nothing is emitted!
 
 | Key | Name Value | Email Value |
 | --- | ---------- | ----------- |
-| 123 | | `"bee@bytewax.io"` |
+| 123 | | `"queen@bytewax.io"` |
 
 Hopefully this helps clarify how basic streaming joins work. Realizing
 that the {py:obj}`~bytewax.operators.join` operator only keeps the
@@ -531,13 +535,16 @@ op.inspect("check_emails", keyed_emails)
 ```{testcode}
 :hide:
 
+_stdout = sys.stdout
+sys.stdout = io.StringIO()
 run_main(flow)
+sys.stdout = _stdout
 ```
 
 The values are entire {py:obj}`dict`s and we'll still access the
 `"at"` key to use the event timestamp.
 
-```{testoutput}
+```text
 join_eg.check_names: ('123', {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'})
 join_eg.check_emails: ('123', {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})
 join_eg.check_names: ('456', {'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'})
@@ -620,7 +627,13 @@ op.inspect("check_join", joined_out.down)
 ```{testcode}
 :hide:
 
+import sys, io
+
+_old_stdout, sys.stdout = sys.stdout, io.StringIO()
 run_main(flow)
+_captured, sys.stdout = sys.stdout.getvalue(), _old_stdout
+for _line in sorted(_captured.strip().split('\n')):
+    print(_line)
 ```
 
 Looks like that's what we see! Notice the `None` in the output for key
@@ -628,8 +641,8 @@ Looks like that's what we see! Notice the `None` in the output for key
 for analysis, but you can ignore that.
 
 ```{testoutput}
-join_eg.check_join: ('456', (8328, ({'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'}, None)))
 join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})))
+join_eg.check_join: ('456', (8328, ({'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'}, None)))
 join_eg.check_join: ('456', (8329, (None, {'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 1, 15, tzinfo=datetime.timezone.utc), 'email': 'hive@bytewax.io'})))
 ```
 

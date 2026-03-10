@@ -5,9 +5,9 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 use chrono::DateTime;
 use chrono::TimeDelta;
@@ -19,19 +19,23 @@ use pyo3::exceptions::PyStopIteration;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Capability;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
+use timely::dataflow::channels::pact::Pipeline;
+use timely::dataflow::operators::Capability;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::progress::Timestamp;
 
-use crate::errors::tracked_err;
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
+use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
-use crate::recovery::*;
-use crate::timely::*;
+use crate::recovery::{FilterSnapsOp, ResumeEpoch, Snapshot, StateChange, StateKey, StepId};
+use crate::timely::{
+    AsWorkerExt, AssignPrimariesOp, CapabilityIterEx, FrontierEx, InBuffer, IntoBroadcastOp,
+    RouteOp, WorkerCount, WorkerIndex, routed_exchange,
+};
 use crate::unwrap_any;
 use crate::with_timer;
 
@@ -49,12 +53,14 @@ const DEFAULT_COOLDOWN: TimeDelta = TimeDelta::microseconds(1000);
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct EpochInterval(TimeDelta);
 
-impl<'py> FromPyObject<'py> for EpochInterval {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for EpochInterval {
+    type Error = PyErr;
+    #[allow(clippy::option_if_let_else)]
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(duration) = ob.extract::<TimeDelta>() {
             Ok(Self(duration))
         } else {
-            Err(PyTypeError::new_err(
+            Err(tracked_err::<PyTypeError>(
                 "epoch interval must be a `datetime.timedelta`",
             ))
         }
@@ -77,6 +83,7 @@ impl EpochInterval {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn test_epochs_per() {
     let found = EpochInterval(TimeDelta::try_milliseconds(5000).unwrap())
         .epochs_per(TimeDelta::try_milliseconds(12000).unwrap());
@@ -84,6 +91,7 @@ fn test_epochs_per() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn test_epochs_per_zero() {
     let found = EpochInterval(TimeDelta::try_milliseconds(5000).unwrap())
         .epochs_per(TimeDelta::try_milliseconds(0).unwrap());
@@ -91,6 +99,8 @@ fn test_epochs_per_zero() {
 }
 
 impl Default for EpochInterval {
+    // Infallible: literal value 10 is within TimeDelta::try_seconds range.
+    #[allow(clippy::unwrap_used)]
     fn default() -> Self {
         Self(TimeDelta::try_seconds(10).unwrap())
     }
@@ -105,39 +115,37 @@ create_exception!(
 
 /// Represents a `bytewax.inputs.Source` from Python.
 #[derive(Clone)]
-pub(crate) struct Source(Py<PyAny>);
+pub(crate) struct Source(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for Source {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for Source {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.inputs")?.getattr("Source")?;
-        if !ob.is_instance(&abc)? {
-            Err(PyTypeError::new_err(
+        let abc = py.import("bytewax.inputs")?.getattr("Source")?;
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
+            Err(tracked_err::<PyTypeError>(
                 "source must subclass `bytewax.inputs.Source`",
             ))
-        } else {
-            Ok(Self(ob.to_object(py)))
         }
     }
 }
 
-impl IntoPy<Py<PyAny>> for Source {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
-    }
-}
-
-impl ToPyObject for Source {
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.0.to_object(py)
+impl<'py> IntoPyObject<'py> for Source {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = std::convert::Infallible;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(self.0.into_inner().into_bound(py))
     }
 }
 
 impl Source {
     pub(crate) fn extract<'p, D>(&'p self, py: Python<'p>) -> PyResult<D>
     where
-        D: FromPyObject<'p>,
+        D: FromPyObject<'p, 'p, Error = PyErr>,
     {
         self.0.extract(py)
     }
@@ -145,25 +153,27 @@ impl Source {
 
 /// Represents a `bytewax.inputs.FixedPartitionedSource` from Python.
 #[derive(Clone)]
-pub(crate) struct FixedPartitionedSource(Py<PyAny>);
+pub(crate) struct FixedPartitionedSource(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for FixedPartitionedSource {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for FixedPartitionedSource {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.inputs")?
+            .import("bytewax.inputs")?
             .getattr("FixedPartitionedSource")?;
-        if !ob.is_instance(&abc)? {
-            Err(PyTypeError::new_err(
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
+            Err(tracked_err::<PyTypeError>(
                 "fixed partitioned source must subclass `bytewax.inputs.FixedPartitionedSource`",
             ))
-        } else {
-            Ok(Self(ob.to_object(py)))
         }
     }
 }
 
+#[allow(clippy::option_if_let_else)]
 fn default_next_awake(
     res: Option<DateTime<Utc>>,
     batch_len: usize,
@@ -197,16 +207,15 @@ struct PartitionedPartState {
 
 impl PartitionedPartState {
     fn awake_due(&self, now: DateTime<Utc>) -> bool {
-        match self.next_awake {
-            None => true,
-            Some(next_awake) => now >= next_awake,
-        }
+        self.next_awake.is_none_or(|next_awake| now >= next_awake)
     }
 }
 
 impl FixedPartitionedSource {
     fn list_parts(&self, py: Python) -> PyResult<Vec<StateKey>> {
-        self.0.call_method0(py, "list_parts")?.extract(py)
+        self.0
+            .call_method0(py, intern!(py, "list_parts"))?
+            .extract(py)
     }
 
     fn build_part(
@@ -214,7 +223,7 @@ impl FixedPartitionedSource {
         py: Python,
         step_id: &StepId,
         for_part: &StateKey,
-        resume_state: Option<PyObject>,
+        resume_state: Option<Py<PyAny>>,
     ) -> PyResult<StatefulPartition> {
         self.0
             .call_method1(
@@ -236,7 +245,7 @@ impl FixedPartitionedSource {
     pub(crate) fn partitioned_input<S>(
         self,
         py: Python,
-        scope: &mut S,
+        scope: &S,
         step_id: StepId,
         epoch_interval: EpochInterval,
         probe: &ProbeHandle<u64>,
@@ -277,27 +286,30 @@ impl FixedPartitionedSource {
         let item_out_count = meter
             .u64_counter("item_out_count")
             .with_description("number of items this step has emitted")
-            .init();
+            .build();
         let next_batch_histogram = meter
             .f64_histogram("inp_part_next_batch_duration_seconds")
             .with_description("`next_batch` duration in seconds")
-            .init();
+            .build();
         let batch_size_histogram = meter
             .u64_histogram("inp_part_next_batch_size")
             .with_description("`next_batch` batch size")
-            .init();
+            .build();
         let snapshot_histogram = meter
             .f64_histogram("snapshot_duration_seconds")
             .with_description("`snapshot` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
         ];
 
         op_builder.build(move |mut init_caps| {
             init_caps.downgrade_all(&start_at.0);
+            // Infallible: Timely guarantees init_caps count matches operator output count.
+            #[allow(clippy::unwrap_used)]
             let init_snap_cap = init_caps.pop().unwrap();
+            #[allow(clippy::unwrap_used)]
             let init_downstream_cap = init_caps.pop().unwrap();
             let mut init_caps = Some((init_downstream_cap, init_snap_cap));
 
@@ -316,6 +328,7 @@ impl FixedPartitionedSource {
                         primaries_inbuf.extend(*epoch, incoming);
                     });
 
+                    #[allow(clippy::iter_with_drain)]
                     loads_input.for_each(|cap, incoming| {
                         let load_epoch = cap.time();
                         assert!(tmp.is_empty());
@@ -328,7 +341,7 @@ impl FixedPartitionedSource {
                         // to where this execution should start.
                         let emit_epoch = std::cmp::max(*load_epoch, start_at.0);
 
-                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                        unwrap_any!(Python::attach(|py| -> PyResult<()> {
                             for (worker, (part_key, change)) in tmp.drain(..) {
                                 assert!(worker == this_worker);
 
@@ -394,7 +407,7 @@ impl FixedPartitionedSource {
                             // load stream. But it's fine since we're
                             // never going to open up the loads stream
                             // again.
-                            unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                            unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                 for part_key in &primary_parts {
                                     if !parts.contains_key(part_key) {
                                         tracing::info!("Init-ing {part_key:?} at epoch {epoch:?}");
@@ -423,19 +436,51 @@ impl FixedPartitionedSource {
 
                     let mut downstream_handle = downstream_output.activate();
                     let mut snaps_handle = snaps_output.activate();
-                    for (part_key, part_state) in parts.iter_mut() {
+                    for (part_key, part_state) in &mut parts {
                         tracing::trace_span!("partition", part_key = ?part_key).in_scope(|| {
                             assert!(
                                 *part_state.downstream_cap.time() == *part_state.snap_cap.time()
                             );
                             let epoch = *part_state.downstream_cap.time();
 
+                            let is_ahead = probe.less_than(&epoch);
                             // When we increment the epoch for this
                             // partition, wait until all ouputs have
                             // finished the previous epoch before
                             // emitting more data to have
                             // backpressure.
-                            if !probe.less_than(&epoch) {
+                            if is_ahead {
+                                tracing::debug!("partition is ahead of others and must wait");
+                                // TODO could use a notificator here?
+                                // Need to wait for the next epoch of the probe somehow.
+                                // Without this extra time, we would spin up again and waste cycles.
+                                // Infallible: literal value 100 is within TimeDelta::try_milliseconds range.
+                                #[allow(clippy::unwrap_used)]
+                                let delta = TimeDelta::try_milliseconds(100).unwrap();
+                                part_state.next_awake = default_next_awake(Some(now + delta), 0, now);
+                                // A dirty hack?
+                                // Trying to resolve an issue when one partition
+                                // increasingly lags behind of another in multiworker setup.
+                                //
+                                // The bug appears when a pair of kafka consumers
+                                // read from uneven number of partitions.
+                                //
+                                // So, the first worker gets one extra parition
+                                // and always has work to do.
+                                //
+                                // And the second worker, given some time, starts to spend
+                                // most of its time waiting for another.
+                                //
+                                // The problem is, this waiting time counts towards its snapshot.
+                                // So, when the first worker finally makes its own snapshot
+                                // and the output epoch increases, the second worker gets
+                                // to run only one `next_batch`, after which it is time
+                                // to make a snapshot and wait again.
+                                //
+                                // This way, we do not count time towards snapshot while waiting for another partition.
+                                // And the partition can read all it can after the snapshot of its late neighbor.
+                                part_state.epoch_started = now;
+                            } else {
                                 let mut eof = false;
                                 // Separately check wheither we should
                                 // call `next_batch` because we need
@@ -443,7 +488,7 @@ impl FixedPartitionedSource {
                                 // this input, even if it hasn't been
                                 // awoken to prevent dataflow stall.
                                 if part_state.awake_due(now) {
-                                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                         let batch_res = with_timer!(
                                             next_batch_histogram,
                                             labels,
@@ -498,8 +543,12 @@ impl FixedPartitionedSource {
                                 // this if-block) otherwise you can
                                 // get cascading advancement and never
                                 // poll input.
+                                //
+                                // Well, it turns out, we do not catch up for just one spin.
+                                // We have to ignore all this time in waiting.
+                                //
                                 if now - part_state.epoch_started >= epoch_interval.0 || eof {
-                                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                         let state = with_timer!(
                                             snapshot_histogram,
                                             labels,
@@ -539,14 +588,14 @@ impl FixedPartitionedSource {
                         // request activation so we will only be
                         // awoken when there's new loading input and
                         // we don't spin during loading.
-                    } else if !parts.is_empty() {
-                        if let Some(min_next_awake) = parts.values().map(|part_state| part_state.next_awake.unwrap_or(now)).min() {
-                            let awake_after = min_next_awake - now;
-                            // If we are already late for the next
-                            // activation, awake immediately.
-                            let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
-                            activator.activate_after(awake_after);
-                        }
+                    } else if !parts.is_empty()
+                        && let Some(min_next_awake) = parts.values().map(|part_state| part_state.next_awake.unwrap_or(now)).min()
+                    {
+                        let awake_after = min_next_awake - now;
+                        // If we are already late for the next
+                        // activation, awake immediately.
+                        let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
+                        activator.activate_after(awake_after);
                     }
                 });
             }
@@ -557,21 +606,22 @@ impl FixedPartitionedSource {
 }
 
 /// Represents a `bytewax.inputs.StatefulSourcePartition` in Python.
-struct StatefulPartition(Py<PyAny>);
+struct StatefulPartition(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatefulPartition {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for StatefulPartition {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.inputs")?
+            .import("bytewax.inputs")?
             .getattr("StatefulSourcePartition")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "stateful source partition must subclass `bytewax.inputs.StatefulSourcePartition`",
             ))
-        } else {
-            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -579,7 +629,7 @@ impl<'py> FromPyObject<'py> for StatefulPartition {
 enum BatchResult {
     Eof,
     Abort,
-    Batch(Vec<PyObject>),
+    Batch(Vec<Py<PyAny>>),
 }
 
 impl StatefulPartition {
@@ -589,14 +639,14 @@ impl StatefulPartition {
             Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
             Ok(obj) => {
-                let iter = obj.iter().reraise_with(|| {
+                let iter = obj.try_iter().reraise_with(|| {
                     format!(
                         "`next_batch` must return an iterable; got a `{}` instead",
-                        unwrap_any!(obj.get_type().name()),
+                        unwrap_any!(obj.get_type().qualname()),
                     )
                 })?;
                 let batch = iter
-                    .map(|res| res.map(PyObject::from))
+                    .map(|res| res.map(<Py<PyAny>>::from))
                     .collect::<PyResult<Vec<_>>>()
                     .reraise("error while iterating through batch")?;
                 Ok(BatchResult::Batch(batch))
@@ -615,36 +665,41 @@ impl StatefulPartition {
     }
 
     fn close(&self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close");
+        let _ = self.0.call_method0(py, intern!(py, "close"))?;
         Ok(())
     }
 }
 
 impl Drop for StatefulPartition {
     fn drop(&mut self) {
-        unwrap_any!(Python::with_gil(|py| self
-            .close(py)
-            .reraise("error closing StatefulSourcePartition")));
+        #[cfg(Py_3_13)]
+        if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
+            return;
+        }
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                err.write_unraisable(py, None);
+            }
+        });
     }
 }
 
 /// Represents a `bytewax.inputs.DynamicInput` from Python.
 #[derive(Clone)]
-pub(crate) struct DynamicSource(Py<PyAny>);
+pub(crate) struct DynamicSource(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for DynamicSource {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for DynamicSource {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py
-            .import_bound("bytewax.inputs")?
-            .getattr("DynamicSource")?;
-        if !ob.is_instance(&abc)? {
+        let abc = py.import("bytewax.inputs")?.getattr("DynamicSource")?;
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "dynamic source must subclass `bytewax.inputs.DynamicSource`",
             ))
-        } else {
-            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -658,10 +713,7 @@ struct DynamicPartState {
 
 impl DynamicPartState {
     fn awake_due(&self, now: DateTime<Utc>) -> bool {
-        match self.next_awake {
-            None => true,
-            Some(next_awake) => now >= next_awake,
-        }
+        self.next_awake.is_none_or(|next_awake| now >= next_awake)
     }
 }
 
@@ -674,7 +726,11 @@ impl DynamicSource {
         count: WorkerCount,
     ) -> PyResult<StatelessPartition> {
         self.0
-            .call_method1(py, "build", (step_id.0.clone(), index.0, count.0))?
+            .call_method1(
+                py,
+                intern!(py, "build"),
+                (step_id.0.clone(), index.0, count.0),
+            )?
             .extract(py)
     }
 
@@ -716,13 +772,13 @@ impl DynamicSource {
         let item_out_count = meter
             .u64_counter("item_out_count")
             .with_description("number of items this step has emitted")
-            .init();
+            .build();
         let next_batch_histogram = meter
             .f64_histogram("inp_part_next_batch_duration_seconds")
             .with_description("`next_batch` duration in seconds")
-            .init();
+            .build();
         let labels = vec![
-            KeyValue::new("step_id", step_id.0.to_string()),
+            KeyValue::new("step_id", step_id.0.clone()),
             KeyValue::new("worker_index", worker_index.0.to_string()),
         ];
 
@@ -731,9 +787,11 @@ impl DynamicSource {
 
             // Inputs must init to the resume epoch.
             init_caps.downgrade_all(&start_at.0);
+            // Infallible: Timely guarantees init_caps count matches operator output count.
+            #[allow(clippy::unwrap_used)]
             let output_cap = init_caps.pop().unwrap();
 
-            let next_awake = unwrap_any!(Python::with_gil(|py| part
+            let next_awake = unwrap_any!(Python::attach(|py| part
                 .next_awake(py)
                 .reraise("error getting next awake time")));
             let mut part_state = Some(DynamicPartState {
@@ -764,7 +822,7 @@ impl DynamicSource {
                             // input, even if it hasn't been awoken to
                             // prevent dataflow stall.
                             if part_state.awake_due(now) {
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     let res = with_timer!(
                                         next_batch_histogram,
                                         labels,
@@ -842,21 +900,22 @@ impl DynamicSource {
 }
 
 /// Represents a `bytewax.inputs.StatelessSource` in Python.
-struct StatelessPartition(Py<PyAny>);
+struct StatelessPartition(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatelessPartition {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for StatelessPartition {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.inputs")?
+            .import("bytewax.inputs")?
             .getattr("StatelessSourcePartition")?;
-        if !ob.is_instance(&abc)? {
+        if ob.is_instance(&abc)? {
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
+        } else {
             Err(tracked_err::<PyTypeError>(
                 "stateless source partition must subclass `bytewax.inputs.StatelessSourcePartition`",
             ))
-        } else {
-            Ok(Self(ob.to_object(py)))
         }
     }
 }
@@ -868,14 +927,14 @@ impl StatelessPartition {
             Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
             Ok(obj) => {
-                let iter = obj.iter().reraise_with(|| {
+                let iter = obj.try_iter().reraise_with(|| {
                     format!(
                         "`next_batch` must return an iterable; got a `{}` instead",
-                        unwrap_any!(obj.get_type().name()),
+                        unwrap_any!(obj.get_type().qualname()),
                     )
                 })?;
                 let batch = iter
-                    .map(|res| res.map(PyObject::from))
+                    .map(|res| res.map(<Py<PyAny>>::from))
                     .collect::<PyResult<Vec<_>>>()
                     .reraise("error while iterating through batch")?;
                 Ok(BatchResult::Batch(batch))
@@ -890,20 +949,73 @@ impl StatelessPartition {
     }
 
     fn close(&self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close")?;
+        let _ = self.0.call_method0(py, intern!(py, "close"))?;
         Ok(())
     }
 }
 
 impl Drop for StatelessPartition {
     fn drop(&mut self) {
-        unwrap_any!(Python::with_gil(|py| self
-            .close(py)
-            .reraise("error closing StatelessSourcePartition")));
+        #[cfg(Py_3_13)]
+        if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
+            return;
+        }
+        Python::attach(|py| {
+            if let Err(err) = self.close(py) {
+                err.write_unraisable(py, None);
+            }
+        });
     }
 }
 
 pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add("AbortExecution", py.get_type_bound::<AbortExecution>())?;
+    m.add("AbortExecution", py.get_type::<AbortExecution>())?;
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    #[test]
+    fn default_next_awake_explicit_time_returned_as_is() {
+        let now = Utc::now();
+        let explicit = now + TimeDelta::seconds(10);
+        // When source returns an explicit time, it's always used regardless of batch_len
+        assert_eq!(default_next_awake(Some(explicit), 0, now), Some(explicit));
+        assert_eq!(default_next_awake(Some(explicit), 5, now), Some(explicit));
+    }
+
+    #[test]
+    fn default_next_awake_none_with_items_returns_none() {
+        let now = Utc::now();
+        // None + items → re-awaken immediately (None)
+        assert_eq!(default_next_awake(None, 1, now), None);
+        assert_eq!(default_next_awake(None, 100, now), None);
+    }
+
+    #[test]
+    fn default_next_awake_none_with_no_items_returns_cooldown() {
+        let now = Utc::now();
+        // None + no items → wait DEFAULT_COOLDOWN
+        let result = default_next_awake(None, 0, now);
+        assert_eq!(result, Some(now + DEFAULT_COOLDOWN));
+    }
+
+    #[test]
+    fn epoch_interval_rejects_non_timedelta() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let obj = 42i32.into_pyobject(py).unwrap().into_any();
+            let result = EpochInterval::extract(obj.as_borrowed());
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(err.is_instance_of::<PyTypeError>(py));
+            let msg = err.to_string();
+            assert!(msg.contains("inputs.rs"), "expected file in: {msg}");
+            assert!(msg.contains("epoch interval"), "expected message in: {msg}");
+        });
+    }
 }

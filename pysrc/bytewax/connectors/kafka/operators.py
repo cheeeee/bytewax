@@ -2,13 +2,13 @@
 
 It's suggested to import operators like this:
 
-```{testcode}
+```python
 from bytewax.connectors.kafka import operators as kop
 ```
 
 And then you can use the operators like this:
 
-```{testcode}
+```python
 from bytewax.dataflow import Dataflow
 
 flow = Dataflow("kafka-in-out")
@@ -20,9 +20,13 @@ kop.output("kafka-out", kafka_input.oks, brokers=[...], topic="...")
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Generic, List, Optional, TypeVar, Union, cast
 
-import bytewax.operators as op
 import confluent_kafka
 import confluent_kafka.serialization
+from confluent_kafka import OFFSET_BEGINNING
+from confluent_kafka import KafkaError as ConfluentKafkaError
+from confluent_kafka.serialization import MessageField, SerializationContext
+
+import bytewax.operators as op
 from bytewax.connectors.kafka import (
     K2,
     V2,
@@ -36,9 +40,6 @@ from bytewax.connectors.kafka import (
     V,
 )
 from bytewax.dataflow import Dataflow, Stream, operator
-from confluent_kafka import OFFSET_BEGINNING
-from confluent_kafka import KafkaError as ConfluentKafkaError
-from confluent_kafka.serialization import MessageField, SerializationContext
 
 X = TypeVar("X")
 """Type of successfully processed items."""
@@ -65,8 +66,8 @@ def _kafka_error_split(
     """Split the stream from KafkaSource between oks and errs."""
     branch = op.branch("branch", up, lambda msg: isinstance(msg, KafkaSourceMessage))
     # Cast the streams to the proper expected types.
-    oks = cast(Stream[KafkaSourceMessage[K2, V2]], branch.trues)
-    errs = cast(Stream[KafkaError[K, V]], branch.falses)
+    oks = cast("Stream[KafkaSourceMessage[K2, V2]]", branch.trues)
+    errs = cast("Stream[KafkaError[K, V]]", branch.falses)
     return KafkaOpOut(oks, errs)
 
 
@@ -353,7 +354,9 @@ def serialize_key(
 
     def shim_mapper(msg: KafkaSinkMessage[Any, V]) -> KafkaSinkMessage[bytes, V]:
         key = serializer(msg.key, ctx=SerializationContext(msg.topic, MessageField.KEY))
-        assert key is not None
+        if key is None:
+            msg_err = "key serializer returned None"
+            raise RuntimeError(msg_err)
         return msg._with_key(key)
 
     return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
@@ -386,7 +389,9 @@ def serialize_value(
         value = serializer(
             msg.value, ctx=SerializationContext(msg.topic, MessageField.VALUE)
         )
-        assert value is not None
+        if value is None:
+            msg_err = "value serializer returned None"
+            raise RuntimeError(msg_err)
         return msg._with_value(value)
 
     return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
@@ -425,11 +430,15 @@ def serialize(
         key = key_serializer(
             msg.key, ctx=SerializationContext(msg.topic, MessageField.KEY)
         )
-        assert key is not None
+        if key is None:
+            msg_err = "key serializer returned None"
+            raise RuntimeError(msg_err)
         value = val_serializer(
             msg.value, ctx=SerializationContext(msg.topic, MessageField.VALUE)
         )
-        assert value is not None
+        if value is None:
+            msg_err = "value serializer returned None"
+            raise RuntimeError(msg_err)
         return msg._with_key_and_value(key, value)
 
     return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)

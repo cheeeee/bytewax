@@ -33,7 +33,7 @@ get-started:
 _assert-venv:
     #!/usr/bin/env python
     import sys
-    p = sys.prefix
+    p = sys.prefix.rstrip("/")
     if not (p.endswith("venvs/dev") or p.endswith("venv")):
         print("You must activate the `dev` venv with `. venvs/dev/bin/activate` before running this command", file=sys.stderr)
         sys.exit(1)
@@ -66,11 +66,19 @@ lint: _assert-venv
     vermin --config-file vermin-lib.ini pysrc/ pytests/ examples/
     vermin --config-file vermin-dev.ini docs/ *.py
     ruff check pysrc/ pytests/ docs/ examples/ *.py
-    # TODO: Add `examples/` to mypy checking. Will require a lot of
-    # fixup?
     mypy -p bytewax
-    mypy pytests/ docs/ *.py
     cargo clippy
+
+# Audit dependencies for known vulnerabilities
+audit: audit-rs audit-py
+
+# Audit Rust dependencies (licenses, advisories, bans, sources)
+audit-rs:
+    cargo deny check
+
+# Audit Python dependencies for known vulnerabilities
+audit-py: _assert-venv
+    pip-audit
 
 # Manually check that all pre-commit hooks pass; runs in CI
 lint-pc: _assert-venv
@@ -86,9 +94,13 @@ pytests := 'pytests/'
 test-py tests=pytests: _assert-venv
     pytest --benchmark-skip {{tests}}
 
+# Run the Python tests with coverage report
+test-cov tests=pytests: _assert-venv
+    pytest --benchmark-skip --cov=bytewax --cov-report=term-missing {{tests}}
+
 # Run the Python benchmarks; runs in CI
 test-benchmark:
-    pytest --codspeed pytests/
+    pytest --codspeed --codspeed-mode walltime pytests/
 
 # Test all code in the documentation; runs in CI
 test-doc: _assert-venv
@@ -118,13 +130,15 @@ venv-init-build:
     test -d venvs/build-py3.10/ || uv venv -p 3.10 venvs/build-py3.10/
     test -d venvs/build-py3.11/ || uv venv -p 3.11 venvs/build-py3.11/
     test -d venvs/build-py3.12/ || uv venv -p 3.12 venvs/build-py3.12/
+    test -d venvs/build-py3.13/ || uv venv -p 3.13 venvs/build-py3.13/
+    test -d venvs/build-py3.14/ || uv venv -p 3.14 venvs/build-py3.14/
 
 # Sync the given venv; e.g. `dev` or `build-py3.10`
 venv-sync venv:
     VIRTUAL_ENV={{justfile_directory()}}/venvs/{{venv}} uv pip sync --strict requirements/{{venv}}.txt
 
 # Sync all venvs
-venv-sync-all: (venv-sync "doc") (venv-sync "build-py3.8") (venv-sync "build-py3.9") (venv-sync "build-py3.10") (venv-sync "build-py3.11") (venv-sync "build-py3.12") (venv-sync "dev")
+venv-sync-all: (venv-sync "doc") (venv-sync "build-py3.8") (venv-sync "build-py3.9") (venv-sync "build-py3.10") (venv-sync "build-py3.11") (venv-sync "build-py3.12") (venv-sync "build-py3.13") (venv-sync "build-py3.14") (venv-sync "dev")
 
 # Pin / compile all dependences for reproducible venvs; re-run this if you update any library deps or `.in` files
 venv-compile-all:
@@ -135,11 +149,15 @@ venv-compile-all:
     uv pip compile --generate-hashes -p 3.10 --all-extras pyproject.toml -o requirements/lib-py3.10.txt
     uv pip compile --generate-hashes -p 3.11 --all-extras pyproject.toml -o requirements/lib-py3.11.txt
     uv pip compile --generate-hashes -p 3.12 --all-extras pyproject.toml -o requirements/lib-py3.12.txt
+    uv pip compile --generate-hashes -p 3.13 --all-extras pyproject.toml -o requirements/lib-py3.13.txt
+    uv pip compile --generate-hashes -p 3.14 --all-extras pyproject.toml -o requirements/lib-py3.14.txt
 
     uv pip compile --generate-hashes -p 3.8 requirements/build.in requirements/lib-py3.8.txt -o requirements/build-py3.8.txt
     uv pip compile --generate-hashes -p 3.9 requirements/build.in requirements/lib-py3.9.txt -o requirements/build-py3.9.txt
     uv pip compile --generate-hashes -p 3.10 requirements/build.in requirements/lib-py3.10.txt -o requirements/build-py3.10.txt
     uv pip compile --generate-hashes -p 3.11 requirements/build.in requirements/lib-py3.11.txt -o requirements/build-py3.11.txt
     uv pip compile --generate-hashes -p 3.12 requirements/build.in requirements/lib-py3.12.txt -o requirements/build-py3.12.txt
+    uv pip compile --generate-hashes -p 3.13 requirements/build.in requirements/lib-py3.13.txt -o requirements/build-py3.13.txt
+    uv pip compile --generate-hashes -p 3.14 requirements/build.in requirements/lib-py3.14.txt -o requirements/build-py3.14.txt
 
     uv pip compile --generate-hashes -p 3.12 requirements/dev.in requirements/lib-py3.12.txt -o requirements/dev.txt
