@@ -14,6 +14,8 @@ from bytewax.connectors.kafka import (
     _produce_batch,
     _StatefulKafkaSinkPartition,
 )
+from confluent_kafka import KafkaError as ConfluentKafkaError
+from confluent_kafka import KafkaException
 
 
 class TestKafkaSinkBufferError:
@@ -404,6 +406,33 @@ class TestDeliveryCallbacks:
         for c in producer.produce.call_args_list:
             assert "on_delivery" in c.kwargs
 
+    def test_produce_batch_kafka_exception(self):
+        """KafkaException during produce is caught and surfaces as KafkaProduceError."""
+        producer = MagicMock()
+        err = ConfluentKafkaError(ConfluentKafkaError.MSG_SIZE_TOO_LARGE)
+        producer.produce.side_effect = KafkaException(err)
+
+        msgs = [KafkaSinkMessage(key=b"k", value=b"v", topic="t")]
+        with pytest.raises(KafkaProduceError) as exc_info:
+            _produce_batch(producer, "t", msgs)
+        assert len(exc_info.value.errors) == 1
+        assert exc_info.value.errors[0][1] == "t"
+
+    def test_produce_batch_kafka_exception_continues(self):
+        """After KafkaException, remaining messages still processed."""
+        producer = MagicMock()
+        err = ConfluentKafkaError(ConfluentKafkaError.MSG_SIZE_TOO_LARGE)
+        producer.produce.side_effect = [KafkaException(err), None]
+
+        msgs = [
+            KafkaSinkMessage(key=b"k1", value=b"v1", topic="t"),
+            KafkaSinkMessage(key=b"k2", value=b"v2", topic="t"),
+        ]
+        with pytest.raises(KafkaProduceError) as exc_info:
+            _produce_batch(producer, "t", msgs)
+        assert producer.produce.call_count == 2
+        assert len(exc_info.value.errors) == 1
+
 
 class TestStatefulKafkaSinkPartition:
     """Tests for _StatefulKafkaSinkPartition snapshot and state tracking."""
@@ -544,6 +573,32 @@ class TestStatefulKafkaSink:
         assert "0-topicB" in parts
         assert "1-topicB" in parts
         assert "2-topicB" in parts
+
+    @patch("bytewax.connectors.kafka._list_parts")
+    @patch("bytewax.connectors.kafka.AdminClient")
+    def test_list_parts_cached(self, mock_admin_cls, mock_list_parts):
+        """list_parts() only discovers partitions once."""
+        mock_admin_cls.return_value = MagicMock()
+        mock_list_parts.return_value = ["0-topicA"]
+
+        sink = StatefulKafkaSink(["localhost:9092"], ["topicA"])
+        result1 = sink.list_parts()
+        result2 = sink.list_parts()
+
+        assert result1 is result2
+        mock_list_parts.assert_called_once()
+
+    @patch("bytewax.connectors.kafka._list_parts")
+    @patch("bytewax.connectors.kafka.AdminClient")
+    def test_part_fn_triggers_discovery(self, mock_admin_cls, mock_list_parts):
+        """part_fn() triggers lazy partition discovery if not yet called."""
+        mock_admin_cls.return_value = MagicMock()
+        mock_list_parts.return_value = ["0-topicA", "1-topicA"]
+
+        sink = StatefulKafkaSink(["localhost:9092"], ["topicA"])
+        idx = sink.part_fn("topicA:key")
+        assert 0 <= idx < 2
+        mock_list_parts.assert_called_once()
 
     @patch("bytewax.connectors.kafka._list_parts")
     @patch("bytewax.connectors.kafka.AdminClient")
