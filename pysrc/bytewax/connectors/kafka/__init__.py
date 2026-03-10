@@ -46,6 +46,11 @@ from dataclasses import dataclass, field
 from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
 from zlib import adler32
 
+from confluent_kafka import OFFSET_BEGINNING, Consumer, Producer, TopicPartition
+from confluent_kafka import KafkaError as ConfluentKafkaError
+from confluent_kafka.admin import AdminClient
+from prometheus_client import Gauge
+
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 from bytewax.outputs import (
     DynamicSink,
@@ -53,10 +58,6 @@ from bytewax.outputs import (
     StatefulSinkPartition,
     StatelessSinkPartition,
 )
-from confluent_kafka import OFFSET_BEGINNING, Consumer, Producer, TopicPartition
-from confluent_kafka import KafkaError as ConfluentKafkaError
-from confluent_kafka.admin import AdminClient
-from prometheus_client import Gauge
 
 logger = logging.getLogger(__name__)
 

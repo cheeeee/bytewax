@@ -260,11 +260,11 @@ def test_output_delivery_error_raises(tmp_topic):
     """
     # Restrict max message size so that our payload triggers a delivery error.
     sink_config = config.copy()
-    sink_config["message.max.bytes"] = "100"
+    sink_config["message.max.bytes"] = "1000"
 
     flow = Dataflow("test_df")
-    # Create a value larger than 100 bytes to exceed the limit.
-    large_value = b"x" * 200
+    # Create a value larger than 1000 bytes to exceed the limit.
+    large_value = b"x" * 2000
     inp = [
         KafkaSinkMessage(b"too-big-key", large_value, topic=tmp_topic),
     ]
