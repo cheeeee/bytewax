@@ -1,5 +1,6 @@
 //! Newtypes around `PyO3` types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
+use crate::errors::tracked_err;
 use crate::try_unwrap;
 
 use pyo3::basic::CompareOp;
@@ -229,7 +230,7 @@ impl<'py> FromPyObject<'_, 'py> for TdPyCallable {
                 |_| "object is not callable".to_string(),
                 |type_name| format!("'{type_name}' object is not callable"),
             );
-            Err(PyTypeError::new_err(msg))
+            Err(tracked_err::<PyTypeError>(&msg))
         }
     }
 }
@@ -254,4 +255,29 @@ impl TdPyCallable {
 // The function returns one of the possible subclasses instances.
 pub(crate) trait PyConfigClass<S> {
     fn downcast(&self, py: Python) -> PyResult<S>;
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use pyo3::exceptions::PyTypeError;
+
+    #[test]
+    fn callable_rejects_non_callable() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let obj = 42i32.into_pyobject(py).unwrap().into_any();
+            let result = TdPyCallable::extract(obj.as_borrowed());
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(err.is_instance_of::<PyTypeError>(py));
+            let msg = err.to_string();
+            assert!(
+                msg.contains("pyo3_extensions.rs"),
+                "expected file in: {msg}"
+            );
+            assert!(msg.contains("not callable"), "expected message in: {msg}");
+        });
+    }
 }

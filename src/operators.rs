@@ -19,13 +19,14 @@ use timely::dataflow::Stream;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::operators::Exchange;
-use timely::dataflow::operators::Map;
+use timely::dataflow::operators::Operator;
 use timely::dataflow::operators::ToStream;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::order::TotalOrder;
 use timely::progress::Antichain;
 
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
@@ -435,15 +436,26 @@ where
     S: Scope,
 {
     fn wrap_key(&self) -> Stream<S, TdPyAny> {
-        self.map(move |(key, value)| {
-            let value = <Py<PyAny>>::from(value);
-
-            // TODO: Convert to proper error handling with `?` operator.
-            #[allow(clippy::unwrap_used)]
-            let item: Py<PyAny> =
-                Python::attach(|py| (key, value).into_pyobject(py).unwrap().unbind().into());
-
-            TdPyAny::from(item)
+        self.unary(Pipeline, "WrapKey", |_cap, _info| {
+            let mut buf = Vec::new();
+            move |input, output| {
+                input.for_each(|time, data| {
+                    data.swap(&mut buf);
+                    let mut session = output.session(&time);
+                    Python::attach(|py| {
+                        #[allow(clippy::iter_with_drain)]
+                        for (key, value) in buf.drain(..) {
+                            #[allow(clippy::unwrap_used)]
+                            let item: Py<PyAny> = (key, value.bind(py))
+                                .into_pyobject(py)
+                                .unwrap()
+                                .unbind()
+                                .into();
+                            session.give(TdPyAny::from(item));
+                        }
+                    });
+                });
+            }
         })
     }
 }
@@ -475,7 +487,7 @@ impl<'py> FromPyObject<'_, 'py> for StatefulBatchLogic {
         if ob.is_instance(&abc)? {
             Ok(Self(SafePy::from(ob.to_owned().unbind())))
         } else {
-            Err(PyTypeError::new_err(
+            Err(tracked_err::<PyTypeError>(
                 "logic must subclass `bytewax.operators.StatefulBatchLogic`",
             ))
         }
@@ -839,15 +851,20 @@ where
                             }
 
                             // Then call all logic that has a due
-                            // notification.
-                            let notify_keys: Vec<_> = sched_cache
-                                .iter()
-                                .filter(|(_key, sched)| **sched <= now)
-                                .map(|(key, sched)| (key.clone(), *sched))
-                                .collect();
+                            // notification. Single pass: collect due
+                            // keys and remove them from sched_cache.
+                            let mut notify_keys: Vec<StateKey> = Vec::new();
+                            sched_cache.retain(|key, sched| {
+                                if *sched <= now {
+                                    notify_keys.push(key.clone());
+                                    false
+                                } else {
+                                    true
+                                }
+                            });
                             if !notify_keys.is_empty() {
                                 unwrap_any!(Python::attach(|py| -> PyResult<()> {
-                                    for (key, _sched) in notify_keys {
+                                    for key in notify_keys {
                                         // We should always have a
                                         // logic for anything in
                                         // `sched_cache`. If not, we
@@ -873,13 +890,6 @@ where
                                         if matches!(is_complete, IsComplete::Discard) {
                                             logics.remove(&key);
                                         }
-                                        // Even if we don't discard the
-                                        // logic, the previous scheduled
-                                        // notification only should fire
-                                        // once. The logic can re-schedule
-                                        // it by still returning it in
-                                        // `notify_at`.
-                                        sched_cache.remove(&key);
 
                                         awoken_keys_this_activation.insert(key);
                                     }

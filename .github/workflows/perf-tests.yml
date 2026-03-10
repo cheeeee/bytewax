@@ -24,6 +24,10 @@ jobs:
       - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: ./.github/actions/clean-runner
+        with:
+          workspace: ${{ github.workspace }}
+          clean-cargo: 'true'
       - uses: actions/cache@v5
         with:
           path: |
@@ -84,6 +88,10 @@ jobs:
       - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: ./.github/actions/clean-runner
+        with:
+          workspace: ${{ github.workspace }}
+          clean-cargo: 'true'
       - uses: actions/cache@v5
         with:
           path: |
@@ -141,8 +149,8 @@ jobs:
     steps:
       - name: Fix workspace permissions
         run: |
-          chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
-          rm -rf "${{ github.workspace }}/venv" "${{ github.workspace }}/.ruff_cache" 2>/dev/null || true
+          docker run --rm -v "${{ github.workspace }}:/workspace" alpine:latest \
+            sh -c 'chmod -R a+rwX /workspace && rm -rf /workspace/venv /workspace/.ruff_cache' 2>/dev/null || true
       - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -210,9 +218,6 @@ jobs:
           name: perf-results-py${{ matrix.python-version }}
           path: results-py${{ matrix.python-version }}.json
           retention-days: 30
-      - name: Fix workspace permissions
-        if: always()
-        run: chmod -R a+rwX "$GITHUB_WORKSPACE" 2>/dev/null || true
 
   kafka-bench:
     needs: [wheels]
@@ -225,8 +230,8 @@ jobs:
     steps:
       - name: Fix workspace permissions
         run: |
-          chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
-          rm -rf "${{ github.workspace }}/venv" "${{ github.workspace }}/.ruff_cache" 2>/dev/null || true
+          docker run --rm -v "${{ github.workspace }}:/workspace" alpine:latest \
+            sh -c 'chmod -R a+rwX /workspace && rm -rf /workspace/venv /workspace/.ruff_cache' 2>/dev/null || true
       - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"

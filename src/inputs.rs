@@ -60,7 +60,7 @@ impl<'py> FromPyObject<'_, 'py> for EpochInterval {
         if let Ok(duration) = ob.extract::<TimeDelta>() {
             Ok(Self(duration))
         } else {
-            Err(PyTypeError::new_err(
+            Err(tracked_err::<PyTypeError>(
                 "epoch interval must be a `datetime.timedelta`",
             ))
         }
@@ -126,7 +126,7 @@ impl<'py> FromPyObject<'_, 'py> for Source {
         if ob.is_instance(&abc)? {
             Ok(Self(SafePy::from(ob.to_owned().unbind())))
         } else {
-            Err(PyTypeError::new_err(
+            Err(tracked_err::<PyTypeError>(
                 "source must subclass `bytewax.inputs.Source`",
             ))
         }
@@ -166,7 +166,7 @@ impl<'py> FromPyObject<'_, 'py> for FixedPartitionedSource {
         if ob.is_instance(&abc)? {
             Ok(Self(SafePy::from(ob.to_owned().unbind())))
         } else {
-            Err(PyTypeError::new_err(
+            Err(tracked_err::<PyTypeError>(
                 "fixed partitioned source must subclass `bytewax.inputs.FixedPartitionedSource`",
             ))
         }
@@ -1002,5 +1002,20 @@ mod tests {
         // None + no items → wait DEFAULT_COOLDOWN
         let result = default_next_awake(None, 0, now);
         assert_eq!(result, Some(now + DEFAULT_COOLDOWN));
+    }
+
+    #[test]
+    fn epoch_interval_rejects_non_timedelta() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let obj = 42i32.into_pyobject(py).unwrap().into_any();
+            let result = EpochInterval::extract(obj.as_borrowed());
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(err.is_instance_of::<PyTypeError>(py));
+            let msg = err.to_string();
+            assert!(msg.contains("inputs.rs"), "expected file in: {msg}");
+            assert!(msg.contains("epoch interval"), "expected message in: {msg}");
+        });
     }
 }

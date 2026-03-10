@@ -2135,7 +2135,8 @@ class _JoinState:
             msg = "join states are not same cardinality"
             raise ValueError(msg)
 
-        self.seen = [x + y for x, y in zip(self.seen, other.seen)]
+        for x, y in zip(self.seen, other.seen):
+            x.extend(y)
         return self
 
     def __ior__(self, other: Self) -> Self:

@@ -3,9 +3,9 @@
 //! For a user-centric version of recovery, read the
 //! `bytewax.recovery` Python module docstring. Read that first.
 
+use ahash::AHashMap;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fmt::Debug;
@@ -15,6 +15,7 @@ use std::hash::Hash;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use chrono::TimeDelta;
 use pyo3::create_exception;
@@ -48,6 +49,7 @@ use timely::progress::Timestamp;
 use tracing::instrument;
 
 use crate::errors::PythonException;
+use crate::errors::tracked_err;
 use crate::inputs::EpochInterval;
 use crate::pyo3_extensions::TdPyAny;
 use crate::timely::{
@@ -182,7 +184,7 @@ impl<'py> FromPyObject<'_, 'py> for BackupInterval {
         if let Ok(duration) = obj.extract::<TimeDelta>() {
             Ok(Self(duration))
         } else {
-            Err(PyTypeError::new_err(
+            Err(tracked_err::<PyTypeError>(
                 "backup interval must be a `datetime.timedelta`",
             ))
         }
@@ -243,17 +245,23 @@ impl std::fmt::Display for StepId {
 /// be hashable, have equality, debug printable, and is serde-able and
 /// we can't guarantee those things are correct on any arbitrary
 /// Python type.
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, FromPyObject,
-)]
-pub(crate) struct StateKey(pub(crate) String);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub(crate) struct StateKey(pub(crate) Arc<str>);
+
+impl<'py> FromPyObject<'_, 'py> for StateKey {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+        let s: String = ob.extract()?;
+        Ok(Self(Arc::from(s)))
+    }
+}
 
 impl<'py> IntoPyObject<'py> for StateKey {
     type Target = PyString;
     type Output = Bound<'py, PyString>;
     type Error = std::convert::Infallible;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.0.into_pyobject(py)
+        (&*self.0).into_pyobject(py)
     }
 }
 
@@ -338,7 +346,7 @@ impl RecoveryConfig {
     /// config.
     #[instrument(name = "build_recovery", skip_all)]
     pub(crate) fn build(&self) -> PyResult<(RecoveryBundle, BackupInterval)> {
-        let mut part_paths = HashMap::new();
+        let mut part_paths = AHashMap::new();
         let sqlite_ext = OsStr::new("sqlite3");
         if !self.db_dir.is_dir() {
             return Err(PyFileNotFoundError::new_err(format!(
@@ -362,7 +370,7 @@ impl RecoveryConfig {
 
         let bundle = RecoveryBundle {
             part_paths: Rc::new(part_paths),
-            built_parts: Rc::new(RefCell::new(HashMap::new())),
+            built_parts: Rc::new(RefCell::new(AHashMap::new())),
         };
         let backup_interval = self.backup_interval;
 
@@ -378,7 +386,7 @@ pub(crate) struct RecoveryBundle {
     /// [`new_builder`] need to retain a handle to this to be able to
     /// look up the relevant path. No [`RefCell`] because they don't
     /// need to modify it.
-    part_paths: Rc<HashMap<PartitionIndex, PathBuf>>,
+    part_paths: Rc<AHashMap<PartitionIndex, PathBuf>>,
     /// This is a cache of already built [`RecoveryDB`].
     ///
     /// The map itself is an [`Rc<RefCell>`] because the builder
@@ -387,7 +395,7 @@ pub(crate) struct RecoveryBundle {
     /// times. The values are [`Rc<RefCell<RecoveryDb>`] so that this
     /// cache and the Timely operators themselves all have ownership
     /// access to the partition.
-    built_parts: Rc<RefCell<HashMap<PartitionIndex, Rc<RefCell<RecoveryPart>>>>>,
+    built_parts: Rc<RefCell<AHashMap<PartitionIndex, Rc<RefCell<RecoveryPart>>>>>,
 }
 
 impl RecoveryBundle {
@@ -636,7 +644,7 @@ impl Writer for SerializedSnapshotWriter {
                  VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT (step_id, state_key, snap_epoch) DO UPDATE
                  SET ser_change = EXCLUDED.ser_change",
-                (step_id.0, state_key.0, snap_epoch.0, ser_change),
+                (step_id.0, &*state_key.0, snap_epoch.0, ser_change),
             )
             .unwrap();
         }
@@ -870,14 +878,14 @@ impl SerializedSnapshotLoader {
             .query_map(
                 (
                     self.before.0,
-                    cursor_step_id.map(|s| &s.0),
-                    cursor_state_key.map(|s| &s.0),
+                    cursor_step_id.map(|s| s.0.as_str()),
+                    cursor_state_key.map(|s| &*s.0),
                     self.batch_size,
                 ),
                 |row| {
                     Ok(SerializedSnapshot(
                         StepId(row.get(0)?),
-                        StateKey(row.get(1)?),
+                        StateKey(Arc::from(row.get::<_, String>(1)?)),
                         SnapshotEpoch(row.get(2)?),
                         row.get(3)?,
                     ))
@@ -1022,19 +1030,19 @@ fn gc_leaves_only_final_snap() {
     conn.snap_writer().write_batch(vec![
         SerializedSnapshot(
             StepId(String::from("step_1")),
-            StateKey(String::from("a")),
+            StateKey(Arc::from("a")),
             SnapshotEpoch(1),
             Some("PICKLED_DATA1".as_bytes().to_vec()),
         ),
         SerializedSnapshot(
             StepId(String::from("step_1")),
-            StateKey(String::from("a")),
+            StateKey(Arc::from("a")),
             SnapshotEpoch(2),
             Some("PICKLED_DATA2".as_bytes().to_vec()),
         ),
         SerializedSnapshot(
             StepId(String::from("step_1")),
-            StateKey(String::from("a")),
+            StateKey(Arc::from("a")),
             SnapshotEpoch(5),
             Some("PICKLED_DATA5".as_bytes().to_vec()),
         ),
@@ -1053,7 +1061,7 @@ fn gc_leaves_only_final_snap() {
         .unwrap()
         .query_map((), |row| {
             let step_id = StepId(row.get(0)?);
-            let state_key = StateKey(row.get(1)?);
+            let state_key = StateKey(Arc::from(row.get::<_, String>(1)?));
             let num_snaps: usize = row.get(2)?;
 
             Ok((step_id, state_key, num_snaps))
@@ -2008,4 +2016,29 @@ pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     m.add("NoPartitionsError", py.get_type::<NoPartitionsError>())?;
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use pyo3::exceptions::PyTypeError;
+
+    #[test]
+    fn backup_interval_rejects_non_timedelta() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let obj = 42i32.into_pyobject(py).unwrap().into_any();
+            let result = BackupInterval::extract(obj.as_borrowed());
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(err.is_instance_of::<PyTypeError>(py));
+            let msg = err.to_string();
+            assert!(msg.contains("recovery.rs"), "expected file in: {msg}");
+            assert!(
+                msg.contains("backup interval"),
+                "expected message in: {msg}"
+            );
+        });
+    }
 }

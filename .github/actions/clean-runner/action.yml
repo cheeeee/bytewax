@@ -1,0 +1,37 @@
+name: Clean runner workspace
+description: >
+  Clean stale state on self-hosted runners. Removes directories
+  that persist between runs but aren't managed by the GHA cache.
+  Must be called AFTER actions/checkout (local composite actions
+  require the repo to be checked out first).
+inputs:
+  workspace:
+    description: Path to the workspace directory
+    required: true
+  clean-cargo:
+    description: Remove ~/.cargo/registry/src/ (stale extracted crate sources)
+    required: false
+    default: 'false'
+  clean-pre-commit:
+    description: Remove ~/.cache/pre-commit/ (corrupted hook repos)
+    required: false
+    default: 'false'
+  clean-venv:
+    description: Remove venv/ and .ruff_cache/ from workspace
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Clean stale cargo state
+      if: inputs.clean-cargo == 'true'
+      shell: bash
+      run: rm -rf ~/.cargo/registry/src/
+    - name: Clean pre-commit cache
+      if: inputs.clean-pre-commit == 'true'
+      shell: bash
+      run: rm -rf ~/.cache/pre-commit/
+    - name: Clean venv and caches
+      if: inputs.clean-venv == 'true'
+      shell: bash
+      run: rm -rf "${{ inputs.workspace }}/venv" "${{ inputs.workspace }}/.ruff_cache"
