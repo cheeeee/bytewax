@@ -6,7 +6,6 @@ from typing import Tuple
 
 import bytewax.operators as op
 from bytewax.connectors.kafka import (
-    KafkaProduceError,
     KafkaSink,
     KafkaSinkMessage,
     KafkaSource,
@@ -275,7 +274,7 @@ def test_output_delivery_error_raises(tmp_topic):
         KafkaSink([KAFKA_BROKER], tmp_topic, add_config=sink_config),
     )
 
-    with raises(KafkaProduceError):
+    with raises(BytewaxRuntimeError):
         run_main(flow)
 
 

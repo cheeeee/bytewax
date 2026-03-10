@@ -703,25 +703,25 @@ class StatefulKafkaSink(
         self._add_config: Dict[str, str] = (
             {} if add_config is None else dict(add_config)
         )
-
-        # Discover partition layout for multi-topic routing.
-        admin_config = {"bootstrap.servers": ",".join(self._brokers)}
-        admin_config.update(self._add_config)
-        admin_config.pop("group.id", None)
-        client = AdminClient(admin_config)
-        client.poll(0)
-        self._parts: List[str] = list(_list_parts(client, self._topics))
-
-        # Build topic → (offset_in_parts_list, partition_count) for part_fn.
+        # Partition layout discovered lazily in list_parts().
+        self._parts: Optional[List[str]] = None
         self._topic_ranges: Dict[str, Tuple[int, int]] = {}
-        offset = 0
-        for topic in self._topics:
-            count = sum(1 for p in self._parts if p.endswith(f"-{topic}"))
-            self._topic_ranges[topic] = (offset, count)
-            offset += count
 
     def list_parts(self) -> List[str]:
         """See ABC docstring."""
+        if self._parts is None:
+            admin_config = {"bootstrap.servers": ",".join(self._brokers)}
+            admin_config.update(self._add_config)
+            admin_config.pop("group.id", None)
+            client = AdminClient(admin_config)
+            client.poll(0)
+            self._parts = list(_list_parts(client, self._topics))
+
+            offset = 0
+            for topic in self._topics:
+                count = sum(1 for p in self._parts if p.endswith(f"-{topic}"))
+                self._topic_ranges[topic] = (offset, count)
+                offset += count
         return self._parts
 
     def part_fn(self, item_key: str) -> int:
@@ -729,6 +729,7 @@ class StatefulKafkaSink(
 
         Expects ``item_key`` in the format ``"topic:message_key"``.
         """
+        self.list_parts()  # Ensure partition layout is discovered.
         topic, _, msg_key = item_key.partition(":")
         if topic not in self._topic_ranges:
             msg = f"Unknown topic '{topic}', expected one of {list(self._topic_ranges)}"
