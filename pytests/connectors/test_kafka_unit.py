@@ -663,7 +663,7 @@ class TestStatefulKafkaSink:
     def test_build_part_sets_error_cb(
         self, mock_admin_cls, mock_list_parts, mock_producer_cls
     ):
-        """build_part() passes an error_cb in Producer config."""
+        """build_part() passes error_cb as a keyword arg to Producer."""
         mock_admin_cls.return_value = MagicMock()
         mock_list_parts.return_value = ["0-topicA"]
         mock_producer_cls.return_value = MagicMock()
@@ -671,9 +671,9 @@ class TestStatefulKafkaSink:
         sink = StatefulKafkaSink(["localhost:9092"], ["topicA"])
         sink.build_part("step-1", "0-topicA", None)
 
-        created_config = mock_producer_cls.call_args[0][0]
-        assert "error_cb" in created_config
-        assert callable(created_config["error_cb"])
+        call_kwargs = mock_producer_cls.call_args.kwargs
+        assert "error_cb" in call_kwargs
+        assert callable(call_kwargs["error_cb"])
 
     @patch("bytewax.connectors.kafka.Producer")
     @patch("bytewax.connectors.kafka._list_parts")
@@ -698,15 +698,15 @@ class TestKafkaSinkErrorCb:
 
     @patch("bytewax.connectors.kafka.Producer")
     def test_kafka_sink_sets_error_cb(self, mock_producer_cls):
-        """KafkaSink.build() passes an error_cb in the producer config."""
+        """KafkaSink.build() passes error_cb as a keyword arg to Producer."""
         mock_producer_cls.return_value = MagicMock()
 
         sink = KafkaSink(["localhost:9092"], "test-topic")
         sink.build("step-1", 0, 1)
 
-        created_config = mock_producer_cls.call_args[0][0]
-        assert "error_cb" in created_config
-        assert callable(created_config["error_cb"])
+        call_kwargs = mock_producer_cls.call_args.kwargs
+        assert "error_cb" in call_kwargs
+        assert callable(call_kwargs["error_cb"])
 
     @patch("bytewax.connectors.kafka.Producer")
     def test_kafka_sink_enables_idempotence(self, mock_producer_cls):

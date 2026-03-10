@@ -46,7 +46,13 @@ from dataclasses import dataclass, field
 from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
 from zlib import adler32
 
-from confluent_kafka import OFFSET_BEGINNING, Consumer, Producer, TopicPartition
+from confluent_kafka import (
+    OFFSET_BEGINNING,
+    Consumer,
+    KafkaException,
+    Producer,
+    TopicPartition,
+)
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.admin import AdminClient
 from prometheus_client import Gauge
@@ -535,6 +541,9 @@ def _produce_batch(
                 timestamp=msg.timestamp,
                 on_delivery=_on_delivery,
             )
+        except KafkaException as exc:
+            kafka_err = exc.args[0]
+            errors.append((kafka_err, topic))
         producer.poll(0)
     producer.flush()
 
@@ -608,10 +617,10 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
         }
         config.update(self._add_config)
         config.pop("group.id", None)  # Producer doesn't use consumer groups
-        config["error_cb"] = lambda err: logger.error(
-            "KafkaSink librdkafka error: %s", err
+        producer = Producer(
+            config,
+            error_cb=lambda err: logger.error("KafkaSink librdkafka error: %s", err),
         )
-        producer = Producer(config)
 
         return _KafkaSinkPartition(producer, self._topic)
 
@@ -740,10 +749,12 @@ class StatefulKafkaSink(
         }
         config.update(self._add_config)
         config.pop("group.id", None)
-        config["error_cb"] = lambda err: logger.error(
-            "StatefulKafkaSink librdkafka error: %s", err
-        )
         # Parse "0-topicname" → topic name.
         _, _, topic = for_part.partition("-")
-        producer = Producer(config)
+        producer = Producer(
+            config,
+            error_cb=lambda err: logger.error(
+                "StatefulKafkaSink librdkafka error: %s", err
+            ),
+        )
         return _StatefulKafkaSinkPartition(producer, topic, resume_state)

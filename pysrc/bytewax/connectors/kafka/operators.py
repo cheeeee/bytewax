@@ -495,7 +495,8 @@ def stateful_output(
         def _default_key(
             msg: KafkaSinkMessage[Optional[bytes], Optional[bytes]],
         ) -> str:
-            return f"{msg.topic}:{msg.key or b''}"
+            key = (msg.key or b"").decode("utf-8", errors="surrogateescape")
+            return f"{msg.topic}:{key}"
 
         keyed = op.key_on("key_on", sink_msgs, _default_key)
     else:
