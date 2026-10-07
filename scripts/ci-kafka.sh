@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# Download, start, stop Apache Kafka 3.8.0 (ZK-coordinated) for CI.
-# One script runs on linux native, macOS arm64, macOS Intel,
-# and Git Bash on windows-latest. Inside qemu-armv7
-# (via uraimo/run-on-arch-action) it also runs unchanged. A JDK is
-# pre-installed on every GitHub-hosted runner image.
+# Download, start, stop Apache Kafka 4.3.1 in KRaft mode (single
+# combined broker + controller node) for CI. One script runs on linux
+# native, macOS arm64, macOS Intel, and Git Bash on windows-latest. A
+# JDK 17+ is pre-installed on every GitHub-hosted runner image.
 
 set -euo pipefail
 
-KAFKA_VERSION="${KAFKA_VERSION:-3.8.0}"
+KAFKA_VERSION="${KAFKA_VERSION:-4.3.1}"
 SCALA_VERSION="${SCALA_VERSION:-2.13}"
 KAFKA_DIR="${KAFKA_DIR:-$PWD/.kafka}"
 KAFKA_LOG_DIRS="${KAFKA_LOG_DIRS:-$PWD/.kafka-logs}"
@@ -32,48 +31,33 @@ ensure_kafka() {
 start() {
   ensure_kafka
   rm -rf "$KAFKA_LOG_DIRS"
-  mkdir -p "$KAFKA_LOG_DIRS/zk" "$KAFKA_LOG_DIRS/data"
+  mkdir -p "$KAFKA_LOG_DIRS/data"
 
-  local zk_data_dir
-  zk_data_dir="$(java_path "$KAFKA_LOG_DIRS/zk")"
-
-  cat > "$KAFKA_DIR/config/zk-test.properties" <<EOF
-dataDir=$zk_data_dir
-clientPort=2181
-maxClientCnxns=0
-admin.enableServer=false
-EOF
-
-  export KAFKA_LOG4J_OPTS="-Dlog4j.configuration=file:///$(java_path "$KAFKA_DIR/config/log4j.properties")"
-  local zk_props
-  zk_props="$(java_path "$KAFKA_DIR/config/zk-test.properties")"
-  nohup "$KAFKA_DIR/bin/zookeeper-server-start.sh" \
-    "$zk_props" \
-    </dev/null > "$KAFKA_LOG_DIRS/zk.log" 2>&1 &
-  echo $! > "$KAFKA_LOG_DIRS/zk.pid"
-  disown 2>/dev/null || true
-
-  # Wait up to 60s for ZK to accept TCP connections on its client port.
-  for _ in $(seq 1 60); do
-    if (echo > /dev/tcp/localhost/2181) >/dev/null 2>&1; then break; fi
-    sleep 1
-  done
-
+  # Explicit Java-style paths so log4j2 finds its config under Git Bash
+  # on Windows; tools log quietly, the server uses its own config below.
+  export KAFKA_LOG4J_OPTS="-Dlog4j2.configurationFile=$(java_path "$KAFKA_DIR/config/tools-log4j2.yaml")"
   local props="$KAFKA_DIR/config/server-test.properties"
-  local kafka_data_dir
-  kafka_data_dir="$(java_path "$KAFKA_LOG_DIRS/data")"
   cp "$PWD/examples/utils/kafka-server.properties" "$props"
-  # Portable in-place sed (BSD on macOS, GNU elsewhere). Two overrides:
-  # - log.dirs to a runner-writable path
-  # - zookeeper.connect from the docker-compose network alias to localhost
+  # Portable in-place sed (BSD on macOS, GNU elsewhere): point log.dirs
+  # at a runner-writable path.
   sed -i.bak \
-    -e "s|^log.dirs=.*|log.dirs=$kafka_data_dir|" \
-    -e "s|^zookeeper.connect=.*|zookeeper.connect=localhost:2181|" \
+    -e "s|^log.dirs=.*|log.dirs=$(java_path "$KAFKA_LOG_DIRS/data")|" \
     "$props" && rm -f "${props}.bak"
 
-  local kafka_props
+  # KRaft storage must be formatted with a cluster ID before first
+  # start; `--standalone` bootstraps this node as the sole controller.
+  local kafka_props cluster_id
   kafka_props="$(java_path "$props")"
-  nohup "$KAFKA_DIR/bin/kafka-server-start.sh" "$kafka_props" \
+  cluster_id="$("$KAFKA_DIR/bin/kafka-storage.sh" random-uuid)"
+  "$KAFKA_DIR/bin/kafka-storage.sh" format --standalone \
+    -t "$cluster_id" -c "$kafka_props" > "$KAFKA_LOG_DIRS/format.log" 2>&1 || {
+    echo "Kafka storage format failed:" >&2
+    cat "$KAFKA_LOG_DIRS/format.log" >&2
+    exit 1
+  }
+
+  KAFKA_LOG4J_OPTS="-Dlog4j2.configurationFile=$(java_path "$KAFKA_DIR/config/log4j2.yaml")" \
+    nohup "$KAFKA_DIR/bin/kafka-server-start.sh" "$kafka_props" \
     </dev/null > "$KAFKA_LOG_DIRS/broker.log" 2>&1 &
   echo $! > "$KAFKA_LOG_DIRS/broker.pid"
   disown 2>/dev/null || true
@@ -81,7 +65,7 @@ EOF
   for _ in $(seq 1 90); do
     if "$KAFKA_DIR/bin/kafka-broker-api-versions.sh" \
         --bootstrap-server localhost:9092 >/dev/null 2>&1; then
-      echo "Kafka broker ready on localhost:9092."
+      echo "Kafka ${KAFKA_VERSION} (KRaft) broker ready on localhost:9092."
       return 0
     fi
     sleep 2
@@ -92,13 +76,11 @@ EOF
 }
 
 stop() {
-  for name in broker zk; do
-    local pidfile="$KAFKA_LOG_DIRS/${name}.pid"
-    if [[ -f "$pidfile" ]]; then
-      kill "$(cat "$pidfile")" 2>/dev/null || true
-      rm -f "$pidfile"
-    fi
-  done
+  local pidfile="$KAFKA_LOG_DIRS/broker.pid"
+  if [[ -f "$pidfile" ]]; then
+    kill "$(cat "$pidfile")" 2>/dev/null || true
+    rm -f "$pidfile"
+  fi
 }
 
 case "${1:-}" in
