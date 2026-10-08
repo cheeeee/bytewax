@@ -4,7 +4,13 @@ on:
   push:
     branches:
       - "main"
+  pull_request: {}
   workflow_dispatch:
+
+permissions:
+  contents: read
+  # CodSpeed authenticates uploads with GitHub OIDC; no token secret.
+  id-token: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
@@ -29,9 +35,15 @@ jobs:
       - name: Build wheel
         shell: bash
         run: just build
-      - name: Run benchmarks
+      - name: Install wheel
         shell: bash
         run: |
           WHEEL_FILE=$(ls ./dist/*.whl)
           uv pip install -v --no-deps $WHEEL_FILE
-          just test-benchmark
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@v5
+        with:
+          # CPU simulation counts instructions instead of timing, so
+          # results are stable on shared GitHub-hosted runners.
+          mode: simulation
+          run: just test-benchmark
