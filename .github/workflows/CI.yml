@@ -26,7 +26,7 @@ jobs:
           python-version: "3.12"
           activate-environment: true
           venv-path: venv
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
       # Need this because we're running `cargo clippy` and `fmt`
       # directly.
       - uses: dsherret/rust-toolchain-file@v1

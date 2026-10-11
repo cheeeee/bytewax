@@ -28,7 +28,7 @@ jobs:
           activate-environment: true
           venv-path: venv
       - uses: dsherret/rust-toolchain-file@v1
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
       - name: Prep build venv
         shell: bash
         run: uv pip sync --strict requirements/build-py3.12.txt
