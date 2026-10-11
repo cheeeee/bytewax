@@ -21,7 +21,7 @@ from bytewax.run import (
     _parse_timedelta,
     _prepare_import,
 )
-from pytest import MonkeyPatch, fixture, raises
+from pytest import MonkeyPatch, fixture, mark, raises
 
 FLOW_MODULE = """\
 import bytewax.operators as op
@@ -136,14 +136,22 @@ def test_locate_dataflow_factory_not_returning_dataflow(flow_module):
 
 
 @fixture
-def clean_syspath(monkeypatch):
+def clean_syspath(monkeypatch, tmp_path):
+    """Restore `sys.path` afterwards and run from `tmp_path`.
+
+    Import strings in these tests are relative paths: on Windows an
+    absolute path's drive colon is mistaken for the `:` separator (see
+    `test_prepare_import_absolute_path`).
+
+    """
     monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.chdir(tmp_path)
 
 
 def test_prepare_import_defaults_to_flow(tmp_path, clean_syspath):
     (tmp_path / "solo.py").write_text("")
 
-    mod_str, attr_str = _prepare_import(str(tmp_path / "solo.py"))
+    mod_str, attr_str = _prepare_import("solo.py")
 
     assert (mod_str, attr_str) == ("solo", "flow")
     assert sys.path[0] == os.path.realpath(tmp_path)
@@ -156,7 +164,7 @@ def test_prepare_import_package_module(tmp_path, clean_syspath):
     (pkg / "__init__.py").write_text("")
     (pkg / "mod.py").write_text("")
 
-    mod_str, attr_str = _prepare_import(f"{pkg / 'mod.py'}:get_flow('x')")
+    mod_str, attr_str = _prepare_import("pkg/sub/mod.py:get_flow('x')")
 
     assert (mod_str, attr_str) == ("pkg.sub.mod", "get_flow('x')")
     # The directory above the outermost package goes on the path.
@@ -168,7 +176,7 @@ def test_prepare_import_package_init(tmp_path, clean_syspath):
     pkg.mkdir()
     (pkg / "__init__.py").write_text("")
 
-    mod_str, _ = _prepare_import(f"{pkg / '__init__.py'}:flow")
+    mod_str, _ = _prepare_import("pkg/__init__.py:flow")
 
     assert mod_str == "pkg"
 
@@ -178,9 +186,22 @@ def test_prepare_import_does_not_duplicate_path(tmp_path, clean_syspath):
     sys.path.insert(0, os.path.realpath(tmp_path))
     before = list(sys.path)
 
-    _prepare_import(f"{tmp_path / 'solo.py'}:flow")
+    _prepare_import("solo.py:flow")
 
     assert sys.path == before
+
+
+@mark.xfail(
+    sys.platform == "win32",
+    reason="the drive letter's colon is taken as the module:attr separator",
+    strict=True,
+)
+def test_prepare_import_absolute_path(tmp_path, clean_syspath):
+    (tmp_path / "solo.py").write_text("")
+
+    mod_str, attr_str = _prepare_import(f"{tmp_path / 'solo.py'}:flow")
+
+    assert (mod_str, attr_str) == ("solo", "flow")
 
 
 def test_parse_timedelta():
@@ -276,9 +297,8 @@ def _run_main_module(monkeypatch, *argv: str) -> Dict[str, Any]:
 
 
 def test_main_without_recovery(monkeypatch, no_bytewax_env, flow_module, tmp_path):
-    kwargs = _run_main_module(
-        monkeypatch, f"{tmp_path / flow_module}.py:flow", "-w", "2"
-    )
+    monkeypatch.chdir(tmp_path)
+    kwargs = _run_main_module(monkeypatch, f"{flow_module}.py:flow", "-w", "2")
 
     assert kwargs["flow"].flow_id == "item_flow"
     assert kwargs["workers_per_process"] == 2
@@ -292,7 +312,8 @@ def test_main_without_recovery(monkeypatch, no_bytewax_env, flow_module, tmp_pat
 def test_main_snapshot_interval_without_recovery(
     monkeypatch, no_bytewax_env, flow_module, tmp_path
 ):
-    kwargs = _run_main_module(monkeypatch, f"{tmp_path / flow_module}.py", "-s", "3")
+    monkeypatch.chdir(tmp_path)
+    kwargs = _run_main_module(monkeypatch, f"{flow_module}.py", "-s", "3")
 
     assert kwargs["epoch_interval"] == timedelta(seconds=3)
 
@@ -300,10 +321,11 @@ def test_main_snapshot_interval_without_recovery(
 def test_main_with_recovery_and_addresses(
     monkeypatch, no_bytewax_env, flow_module, tmp_path
 ):
+    monkeypatch.chdir(tmp_path)
     recovery_dir = tmp_path / "recovery"
     kwargs = _run_main_module(
         monkeypatch,
-        f"{tmp_path / flow_module}.py:build('rec')",
+        f"{flow_module}.py:build('rec')",
         "-r",
         str(recovery_dir),
         "-s",
@@ -351,7 +373,7 @@ def test_cli_runs_dataflow(tmp_path):
             sys.executable,
             "-m",
             "bytewax.run",
-            f"{tmp_path / 'cli_flow.py'}:get_flow('row')",
+            "cli_flow.py:get_flow('row')",
             "-w",
             "2",
         ],
@@ -359,6 +381,7 @@ def test_cli_runs_dataflow(tmp_path):
         text=True,
         timeout=60,
         env=env,
+        cwd=tmp_path,
         check=False,
     )
 
