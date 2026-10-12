@@ -9,6 +9,13 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes {py:obj}`~bytewax.inputs.batch_async` never closing the event
+  loop it creates, nor the source async iterator, when it finishes or
+  its partition is closed. Each use leaked file descriptors until
+  garbage collection, and the source's cleanup (e.g. closing a
+  websocket) didn't run. A loop passed in with `loop=` is still left
+  open. Reported in #536 by @Chittaranjans.
+
 - Fixes `python -m bytewax.run` on Windows with an absolute path like
   `C:\proj\flow.py:flow`: the drive letter's colon was taken as the
   `module:dataflow` separator, so the module was looked up as `C`.
