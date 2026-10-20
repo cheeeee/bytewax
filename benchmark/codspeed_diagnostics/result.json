@@ -1,0 +1,125 @@
+{
+  "finding": "Valgrind scheduler starvation in the reproduced four-worker benchmark",
+  "original_run": "https://github.com/cheeeee/bytewax/actions/runs/39475558633",
+  "diagnostic_run": "https://github.com/cheeeee/bytewax/actions/runs/39501570926",
+  "validation_run": "https://github.com/cheeeee/bytewax/actions/runs/39502053504",
+  "status": "confirmed: Linux arm64 and amd64 reproductions, pure-C reproducer, three fair-scheduler repeats, all 12 benchmarks through the actual CodSpeed action",
+  "versions": {
+    "python": "3.12.3",
+    "pytest_codspeed": "5.0.3",
+    "codspeed_runner": "5.5.0",
+    "valgrind": "3.26.0-0codspeed9"
+  },
+  "input": {
+    "items": 100000,
+    "output_items": 300000,
+    "workers": 4,
+    "batch_size": 1000,
+    "executions": "warmup followed by measured execution"
+  },
+  "mechanism": [
+    "Measured run leaves worker 0 polling Timely scheduling/progress while other workers park.",
+    "The default generic Valgrind scheduler uses a pipe-token BigLock with no fairness guarantee.",
+    "The polling worker repeatedly reacquires BigLock while timed waiters remain blocked in the internal pipe read.",
+    "Default simulation times out; changing only --fair-sched=yes uses the Linux ticket lock and completes.",
+    "Disabling CPython perf trampolines does not resolve the hang.",
+    "A minimal C program without Python or Bytewax reproduces the same waiter starvation."
+  ],
+  "fix_env": {
+    "CODSPEED_EXPERIMENTAL_FAIR_SCHED": "true"
+  },
+  "library_changes": false,
+  "api_changes": false,
+  "notes": [
+    "Durations are end-to-end diagnostic process durations, including two benchmark executions and instrumentation overhead; not production speedup.",
+    "Original multi-hour run was canceled without stacks; causality comes from bounded reproductions of the same workload.",
+    "The existing simulation/walltime split on main-upstream-clone has been preserved.",
+    "The fairness flag is experimental in CodSpeed runner 5.5.0. Walltime remains needed to measure real multi-core throughput.",
+    "A 20-second faulthandler dump appears in the successful 28-second diagnostic repeats; this is a diagnostic timer, not a test failure or supervisor timeout."
+  ],
+  "sources": [
+    "https://github.com/CodSpeedHQ/valgrind-codspeed/blob/955da10f00d77e5d2560ea4b866857402eb3806e/coregrind/m_scheduler/sched-lock-generic.c",
+    "https://github.com/CodSpeedHQ/valgrind-codspeed/blob/955da10f00d77e5d2560ea4b866857402eb3806e/coregrind/m_scheduler/sema.c",
+    "https://github.com/CodSpeedHQ/valgrind-codspeed/blob/955da10f00d77e5d2560ea4b866857402eb3806e/coregrind/m_scheduler/scheduler.c#L1423-L1446",
+    "https://github.com/CodSpeedHQ/codspeed/blob/v5.5.0/src/cli/experimental.rs",
+    "https://github.com/CodSpeedHQ/codspeed/blob/v5.5.0/src/executor/valgrind/measure.rs",
+    "https://github.com/TimelyDataflow/timely-dataflow/blob/432ef57fae761f1e4773833b0474b41f1efe7e7c/timely/src/worker.rs#L333-L413"
+  ],
+  "full_action_validation": {
+    "run": "https://github.com/cheeeee/bytewax/actions/runs/39502053504",
+    "passed": 12,
+    "deselected": 299,
+    "pytest_duration_seconds": 409.82,
+    "upload": "Performance data uploaded",
+    "runner_fair_sched_acknowledged": true
+  },
+  "amd64_observations": [
+    {
+      "case": "fair",
+      "process_seconds": 16.409882941000006,
+      "timeout": false,
+      "exit_code": 0
+    },
+    {
+      "case": "native",
+      "process_seconds": 0.6008519159999963,
+      "timeout": false,
+      "exit_code": 0
+    },
+    {
+      "case": "no-perf",
+      "process_seconds": 75.06649833200001,
+      "timeout": true,
+      "exit_code": -15
+    },
+    {
+      "case": "none",
+      "process_seconds": 8.805231615000004,
+      "timeout": false,
+      "exit_code": 0
+    },
+    {
+      "case": "simulation",
+      "process_seconds": 75.115047928,
+      "timeout": true,
+      "exit_code": -15
+    }
+  ],
+  "validation_observations": [
+    {
+      "name": "minimal/fair",
+      "case": "fair",
+      "elapsed": 0.6010696200000041,
+      "timeout": false,
+      "returncode": 0
+    },
+    {
+      "name": "minimal/simulation",
+      "case": "simulation",
+      "elapsed": 40.062183623,
+      "timeout": true,
+      "returncode": -9
+    },
+    {
+      "name": "repeat-1/fair",
+      "case": "fair",
+      "elapsed": 28.017125711999995,
+      "timeout": false,
+      "returncode": 0
+    },
+    {
+      "name": "repeat-2/fair",
+      "case": "fair",
+      "elapsed": 28.21710401900002,
+      "timeout": false,
+      "returncode": 0
+    },
+    {
+      "name": "repeat-3/fair",
+      "case": "fair",
+      "elapsed": 28.017415736000004,
+      "timeout": false,
+      "returncode": 0
+    }
+  ]
+}
