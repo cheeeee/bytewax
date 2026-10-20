@@ -1,0 +1,41 @@
+{
+  "seconds": 38.47374637494795,
+  "rows": [
+    {
+      "case": "queue_stalled",
+      "n": 1000000,
+      "seconds": 0.5019523340743035,
+      "peak_rss_mib": 184.859375,
+      "digest": "d939d273785c7c132d0af8205fffccb31c0ae164e21f665ae74f2e04143da000",
+      "variant": "E",
+      "commit": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419"
+    },
+    {
+      "case": "count_dense_file",
+      "n": 1000000,
+      "seconds": 0.6947689589578658,
+      "peak_rss_mib": 197.546875,
+      "digest": "b1ac400ff076151eb1ae9dbeff46b4c684c365e7d340b9cf5b862a5741502be0",
+      "variant": "E",
+      "commit": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419"
+    },
+    {
+      "case": "queue_stalled",
+      "n": 1000000,
+      "seconds": 17.73012545797974,
+      "peak_rss_mib": 185.171875,
+      "digest": "d939d273785c7c132d0af8205fffccb31c0ae164e21f665ae74f2e04143da000",
+      "variant": "A",
+      "commit": "22753ccc7eaa45e2c300cc3da8b9d5012c25f61f"
+    },
+    {
+      "case": "count_dense_file",
+      "n": 1000000,
+      "seconds": 18.154299624962732,
+      "peak_rss_mib": 197.59375,
+      "digest": "b1ac400ff076151eb1ae9dbeff46b4c684c365e7d340b9cf5b862a5741502be0",
+      "variant": "A",
+      "commit": "22753ccc7eaa45e2c300cc3da8b9d5012c25f61f"
+    }
+  ]
+}

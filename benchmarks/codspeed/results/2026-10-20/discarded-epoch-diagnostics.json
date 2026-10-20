@@ -1,0 +1,71 @@
+{
+  "reason": "Default wall-clock epochs led to different snapshot counts under simulation. Excluded from primary CPU comparison.",
+  "runs": [
+    {
+      "variant": "C",
+      "github_run_id": 39507695450,
+      "codspeed_url": "https://app.codspeed.io/cheeeee/bytewax/runs/6ad7ec949bf7edd9f8af8029",
+      "source_snapshots": {
+        "test_hotpath[queue_stalled-10]": 0,
+        "test_hotpath[queue_stalled-100000]": 0,
+        "test_hotpath[queue_mixed-100000]": 0,
+        "test_hotpath[window_stalled_file-100000]": 2,
+        "test_hotpath[window_moving_file-100000]": 3,
+        "test_hotpath[count_dense_file-10]": 1,
+        "test_hotpath[count_dense_file-100]": 1,
+        "test_hotpath[count_dense_file-10000]": 1,
+        "test_hotpath[count_dense_file-100000]": 3,
+        "test_hotpath[count_sparse_file-10000]": 2,
+        "test_hotpath[count_keys_file-10000]": 7,
+        "test_hotpath[filter_batch1-100000]": 5,
+        "test_hotpath[map_chain-100000]": 3,
+        "test_hotpath[stateful_1000keys-100000]": 3,
+        "test_hotpath[stateful_100000keys-100000]": 5
+      }
+    },
+    {
+      "variant": "D",
+      "github_run_id": 39507942387,
+      "codspeed_url": "https://app.codspeed.io/cheeeee/bytewax/runs/6ad7ed92cbf0f15d51e9d2f3",
+      "source_snapshots": {
+        "test_hotpath[queue_stalled-10]": 0,
+        "test_hotpath[queue_stalled-100000]": 0,
+        "test_hotpath[queue_mixed-100000]": 0,
+        "test_hotpath[window_stalled_file-100000]": 2,
+        "test_hotpath[window_moving_file-100000]": 4,
+        "test_hotpath[count_dense_file-10]": 1,
+        "test_hotpath[count_dense_file-100]": 1,
+        "test_hotpath[count_dense_file-10000]": 1,
+        "test_hotpath[count_dense_file-100000]": 4,
+        "test_hotpath[count_sparse_file-10000]": 2,
+        "test_hotpath[count_keys_file-10000]": 7,
+        "test_hotpath[filter_batch1-100000]": 5,
+        "test_hotpath[map_chain-100000]": 3,
+        "test_hotpath[stateful_1000keys-100000]": 3,
+        "test_hotpath[stateful_100000keys-100000]": 6
+      }
+    },
+    {
+      "variant": "E",
+      "github_run_id": 39508228068,
+      "codspeed_url": "https://app.codspeed.io/cheeeee/bytewax/runs/6ad7ef348c8dc69cbeb97bd1",
+      "source_snapshots": {
+        "test_hotpath[queue_stalled-10]": 0,
+        "test_hotpath[queue_stalled-100000]": 0,
+        "test_hotpath[queue_mixed-100000]": 0,
+        "test_hotpath[window_stalled_file-100000]": 2,
+        "test_hotpath[window_moving_file-100000]": 5,
+        "test_hotpath[count_dense_file-10]": 1,
+        "test_hotpath[count_dense_file-100]": 1,
+        "test_hotpath[count_dense_file-10000]": 1,
+        "test_hotpath[count_dense_file-100000]": 5,
+        "test_hotpath[count_sparse_file-10000]": 3,
+        "test_hotpath[count_keys_file-10000]": 8,
+        "test_hotpath[filter_batch1-100000]": 7,
+        "test_hotpath[map_chain-100000]": 4,
+        "test_hotpath[stateful_1000keys-100000]": 3,
+        "test_hotpath[stateful_100000keys-100000]": 7
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "6ad7f3e5549063d96402004c",
+  "status": "COMPLETED",
+  "url": "https://app.codspeed.io/cheeeee/bytewax/runs/6ad7f3e5549063d96402004c",
+  "results": [
+    {
+      "benchmark": {
+        "name": "test_hotpath[count_dense_file-100000]",
+        "executor": "valgrind"
+      },
+      "value": 35.0452086886018,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 11.63944271637957,
+          "l1m": 22.537102261111112,
+          "llm": 0.8686637111111111,
+          "sys": 0.056674792
+        }
+      },
+      "walltime": null,
+      "memory": null
+    }
+  ]
+}

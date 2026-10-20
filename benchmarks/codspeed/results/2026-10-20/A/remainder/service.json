@@ -1,0 +1,259 @@
+{
+  "id": "6ad7f69d1643291516080250",
+  "status": "COMPLETED",
+  "url": "https://app.codspeed.io/cheeeee/bytewax/runs/6ad7f69d1643291516080250",
+  "results": [
+    {
+      "benchmark": {
+        "name": "test_hotpath[count_dense_file-10]",
+        "executor": "valgrind"
+      },
+      "value": 0.02186810905915085,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 0.00652863822581752,
+          "l1m": 0.012978881944444444,
+          "llm": 0.002360588888888889,
+          "sys": 0.001093809
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[count_dense_file-100]",
+        "executor": "valgrind"
+      },
+      "value": 0.08737154987673515,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 0.02839363043229071,
+          "l1m": 0.05559281944444444,
+          "llm": 0.0033851,
+          "sys": 0.001083024
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[count_dense_file-10000]",
+        "executor": "valgrind"
+      },
+      "value": 7.463665117312859,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 2.483846500646192,
+          "l1m": 4.849667172222222,
+          "llm": 0.13015144444444443,
+          "sys": 0.00597297
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[count_keys_file-10000]",
+        "executor": "valgrind"
+      },
+      "value": 3.383891527309412,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 1.0487221286983008,
+          "l1m": 2.0820589875,
+          "llm": 0.2531104111111111,
+          "sys": 0.097596417
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[count_sparse_file-10000]",
+        "executor": "valgrind"
+      },
+      "value": 1.3753857545039996,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 0.4349442572817773,
+          "l1m": 0.872513075,
+          "llm": 0.06792842222222223,
+          "sys": 0.008133696
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[filter_batch1-100000]",
+        "executor": "valgrind"
+      },
+      "value": 3.122043952319418,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 0.852743378708307,
+          "l1m": 1.832256251388889,
+          "llm": 0.4370443222222222,
+          "sys": 1.271050876
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[map_chain-100000]",
+        "executor": "valgrind"
+      },
+      "value": 2.3320010676717424,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 0.7301479996161869,
+          "l1m": 1.4539791125,
+          "llm": 0.14787395555555555,
+          "sys": 0.006020753
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[queue_mixed-100000]",
+        "executor": "valgrind"
+      },
+      "value": 15.18529696498267,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 4.6430325108160035,
+          "l1m": 9.252636765277778,
+          "llm": 1.289627688888889,
+          "sys": 0
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[queue_stalled-10]",
+        "executor": "valgrind"
+      },
+      "value": 0.004995614412607263,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 0.0015060185792739298,
+          "l1m": 0.0029753402777777777,
+          "llm": 0.0005142555555555556,
+          "sys": 0
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[queue_stalled-100000]",
+        "executor": "valgrind"
+      },
+      "value": 21.855466011683664,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 6.5602283033503275,
+          "l1m": 13.069743797222221,
+          "llm": 2.225493911111111,
+          "sys": 0
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[stateful_100000keys-100000]",
+        "executor": "valgrind"
+      },
+      "value": 5.663951213644242,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 1.6945800066997967,
+          "l1m": 3.200021340277778,
+          "llm": 0.7693498666666667,
+          "sys": 1.829547348
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[stateful_1000keys-100000]",
+        "executor": "valgrind"
+      },
+      "value": 2.2197173760801836,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 0.696195994135739,
+          "l1m": 1.3502092597222222,
+          "llm": 0.17331212222222223,
+          "sys": 0.720890277
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[window_moving_file-100000]",
+        "executor": "valgrind"
+      },
+      "value": 3.758488954499183,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 1.2068124739436277,
+          "l1m": 2.448579591666667,
+          "llm": 0.10309688888888889,
+          "sys": 0.003831718
+        }
+      },
+      "walltime": null,
+      "memory": null
+    },
+    {
+      "benchmark": {
+        "name": "test_hotpath[window_stalled_file-100000]",
+        "executor": "valgrind"
+      },
+      "value": 10.119762288209207,
+      "issues": null,
+      "valgrind": {
+        "timeDistribution": {
+          "ir": 3.0561086243203177,
+          "l1m": 6.175493275,
+          "llm": 0.8881603888888889,
+          "sys": 0.003716461
+        }
+      },
+      "walltime": null,
+      "memory": null
+    }
+  ]
+}

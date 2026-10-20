@@ -1,0 +1,92 @@
+[
+  {
+    "benchmark": "test_hotpath[count_dense_file-10]",
+    "E_cpu_seconds": 0.015843720136658693,
+    "full_suite_cpu_seconds": 0.016127306385133797,
+    "delta_percent": 1.789896855214912
+  },
+  {
+    "benchmark": "test_hotpath[count_dense_file-100]",
+    "E_cpu_seconds": 0.017670716339889047,
+    "full_suite_cpu_seconds": 0.017819762348322152,
+    "delta_percent": 0.843463307124992
+  },
+  {
+    "benchmark": "test_hotpath[count_dense_file-10000]",
+    "E_cpu_seconds": 0.24627885836050814,
+    "full_suite_cpu_seconds": 0.24669014807963532,
+    "delta_percent": 0.1670016345963088
+  },
+  {
+    "benchmark": "test_hotpath[count_dense_file-100000]",
+    "E_cpu_seconds": 2.3042279597197646,
+    "full_suite_cpu_seconds": 2.315944371644724,
+    "delta_percent": 0.5084745142309721
+  },
+  {
+    "benchmark": "test_hotpath[count_keys_file-10000]",
+    "E_cpu_seconds": 3.001542192840947,
+    "full_suite_cpu_seconds": 3.011193359667142,
+    "delta_percent": 0.32154026850643724
+  },
+  {
+    "benchmark": "test_hotpath[count_sparse_file-10000]",
+    "E_cpu_seconds": 1.5263627380946894,
+    "full_suite_cpu_seconds": 1.5313928744301746,
+    "delta_percent": 0.3295505196729387
+  },
+  {
+    "benchmark": "test_hotpath[filter_batch1-100000]",
+    "E_cpu_seconds": 2.9912649024405935,
+    "full_suite_cpu_seconds": 2.990469827026809,
+    "delta_percent": -0.026579906484913707
+  },
+  {
+    "benchmark": "test_hotpath[map_chain-100000]",
+    "E_cpu_seconds": 2.3304923082865354,
+    "full_suite_cpu_seconds": 2.3624417979268606,
+    "delta_percent": 1.3709330653751683
+  },
+  {
+    "benchmark": "test_hotpath[queue_mixed-100000]",
+    "E_cpu_seconds": 7.009800593891144,
+    "full_suite_cpu_seconds": 7.025798620730149,
+    "delta_percent": 0.22822370800315017
+  },
+  {
+    "benchmark": "test_hotpath[queue_stalled-10]",
+    "E_cpu_seconds": 0.005075056195191435,
+    "full_suite_cpu_seconds": 0.004960204469886323,
+    "delta_percent": -2.2630631245804333
+  },
+  {
+    "benchmark": "test_hotpath[queue_stalled-100000]",
+    "E_cpu_seconds": 1.5830753813612883,
+    "full_suite_cpu_seconds": 1.5926408219522799,
+    "delta_percent": 0.6042315295665901
+  },
+  {
+    "benchmark": "test_hotpath[stateful_100000keys-100000]",
+    "E_cpu_seconds": 4.643447952703886,
+    "full_suite_cpu_seconds": 4.6635709380483625,
+    "delta_percent": 0.4333629998535704
+  },
+  {
+    "benchmark": "test_hotpath[stateful_1000keys-100000]",
+    "E_cpu_seconds": 1.779701473941446,
+    "full_suite_cpu_seconds": 1.7836678270164097,
+    "delta_percent": 0.22286620160960613
+  },
+  {
+    "benchmark": "test_hotpath[window_moving_file-100000]",
+    "E_cpu_seconds": 2.3936378089827253,
+    "full_suite_cpu_seconds": 2.3984614953562957,
+    "delta_percent": 0.20152114724576453
+  },
+  {
+    "benchmark": "test_hotpath[window_stalled_file-100000]",
+    "E_cpu_seconds": 2.328547048292652,
+    "full_suite_cpu_seconds": 2.335258737629395,
+    "delta_percent": 0.2882350752442031
+  }
+]

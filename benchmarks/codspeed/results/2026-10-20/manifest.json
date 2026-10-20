@@ -1,0 +1,88 @@
+{
+  "branch": "main-upstream-clone",
+  "base": "3dc034e3b19103f6a2de669d3586df2b841b29e2",
+  "harness": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419",
+  "workload_sha256": "eecf2106c699d9b2c1e6f30451097d4038335fa254a3cd9ca42f78e6dfe8c0ec",
+  "epoch_interval_seconds": 86400,
+  "runs": [
+    {
+      "variant": "A",
+      "label": "baseline + identical harness",
+      "sha": "22753ccc7eaa45e2c300cc3da8b9d5012c25f61f",
+      "parts": [
+        {
+          "part": "dense-large",
+          "github_run_id": 39511277842,
+          "workflow_sha": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419"
+        },
+        {
+          "part": "remainder",
+          "github_run_id": 39511280158,
+          "workflow_sha": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419"
+        }
+      ]
+    },
+    {
+      "variant": "B",
+      "label": "A + queue/window lookup (PR 636 part 1)",
+      "sha": "37e216992493ad8f3417b3a4a3523d747cf2c182",
+      "parts": [
+        {
+          "part": "dense-large",
+          "github_run_id": 39511282704,
+          "workflow_sha": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419"
+        },
+        {
+          "part": "remainder",
+          "github_run_id": 39511284860,
+          "workflow_sha": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419"
+        }
+      ]
+    },
+    {
+      "variant": "C",
+      "label": "B + count reuse (PR 636 part 2)",
+      "sha": "5beaf30f196c5a7865a105867aac067adc32b514",
+      "github_run_id": 39511287818,
+      "workflow_sha": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419"
+    },
+    {
+      "variant": "D",
+      "label": "C + stateful batching (PR 617)",
+      "sha": "68276acd7991da6d227ce1f29a5e959288f80f11",
+      "github_run_id": 39511290160,
+      "workflow_sha": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419"
+    },
+    {
+      "variant": "E",
+      "label": "D + inactive instrumentation bypass (PR 620)",
+      "sha": "8aec652898e5759048245de2786aa0d8630274a1",
+      "github_run_id": 39511292549,
+      "workflow_sha": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419"
+    }
+  ],
+  "repository": "cheeeee/bytewax",
+  "variant_design": "Cumulative. Successive B/A, C/B, D/C, E/D comparisons isolate imports.",
+  "validation": {
+    "python": "347 passed, 18 Kafka tests skipped (no broker)",
+    "rust": "9 unit tests + 1 doctest passed; 4 pre-existing doctests ignored",
+    "ruff": "passed",
+    "mypy": "23 source files passed",
+    "clippy": "passed",
+    "rustfmt": "passed",
+    "public_python_signatures": "76 unchanged in operators/__init__.py and windowing.py",
+    "fixed_epoch_harness": "15 tests passed after setting epoch_interval=1 day"
+  },
+  "local_platform": "macOS ARM64, Apple M5, CPython 3.12.13; fresh process per case",
+  "full_suite": {
+    "github_run_id": 39511529251,
+    "sha": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419",
+    "suite": "all",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/cheeeee/bytewax/actions/runs/39511529251",
+    "codspeed_url": "https://app.codspeed.io/cheeeee/bytewax/runs/6ad7f641ad0bd23fa756abbf",
+    "benchmarks_passed": 27,
+    "functional_tests_deselected": 338
+  }
+}

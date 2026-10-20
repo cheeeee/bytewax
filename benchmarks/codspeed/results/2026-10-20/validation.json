@@ -1,0 +1,39 @@
+{
+  "runtime": "8aec652898e5759048245de2786aa0d8630274a1",
+  "python_tests": {
+    "passed": 347,
+    "skipped": 18,
+    "skipped_reason": "Real Kafka integration tests require a broker; no broker was configured locally."
+  },
+  "rust_unit_tests": {
+    "passed": 9
+  },
+  "rust_doctests": {
+    "passed": 1,
+    "ignored": 4,
+    "note": "Existing ignored doctests; rustdoc also emitted two existing documentation warnings."
+  },
+  "public_python_signatures": {
+    "unchanged": 76,
+    "baseline": "22753ccc7eaa45e2c300cc3da8b9d5012c25f61f",
+    "scope": [
+      "operators module functions and public class methods",
+      "windowing module functions and public class methods"
+    ],
+    "comparison": "AST arguments (including defaults/annotations) and return annotations"
+  },
+  "checks": {
+    "ruff_affected_runtime_and_tests": "passed",
+    "rustfmt": "passed",
+    "clippy": "passed",
+    "mypy_source_files": 23,
+    "actionlint": "passed"
+  },
+  "native_local": {
+    "variants": "ABCDE",
+    "cases_per_variant": 17,
+    "all_output_digests_match": true
+  },
+  "native_local_E_commit": "ab51102e3a1dea7d8d7f1cd3372dba824fdbc419",
+  "native_local_E_note": "Runtime sources match variant E; later commits only change benchmarks/workflow."
+}
