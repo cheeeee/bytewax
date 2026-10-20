@@ -45,10 +45,21 @@ jobs:
     timeout-minutes: 45
     env:
       PYTHONHASHSEED: "0"
+      BENCHMARK_HARNESS_COMMIT: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.revision || github.sha }}
+      - name: Checkout common measurement harness
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: .benchmark-harness
+          sparse-checkout: benchmarks/codspeed
+      - name: Use the same harness for every runtime revision
+        run: |
+          mkdir -p benchmarks/codspeed
+          cp .benchmark-harness/benchmarks/codspeed/*.py benchmarks/codspeed/
       - uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "0.11.11"

@@ -11,6 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import bytewax._bytewax as extension
 from workloads import CASES, LARGE_CASES, build
 
 
@@ -80,6 +81,13 @@ def main():
         "budget_seconds": args.budget,
         "python": sys.version,
         "hashseed": os.environ.get("PYTHONHASHSEED"),
+        "workload_sha256": hashlib.sha256(
+            Path(__file__).with_name("workloads.py").read_bytes()
+        ).hexdigest(),
+        "native_sha256": hashlib.sha256(
+            Path(extension.__file__).read_bytes()
+        ).hexdigest(),
+        "epoch_interval_seconds": 86400,
         "rows": rows,
         "complete": all(row["status"] == "passed" for row in rows),
         "note": "One fresh process per case: screening, not a precise estimate of small gains. RSS includes prepared input; verification is untimed.",

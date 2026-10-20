@@ -12,6 +12,10 @@ from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource, run_main
 
 ORIGIN = datetime(2024, 1, 1, tzinfo=timezone.utc)
+# Valgrind changes wall time dramatically. Default timed epochs would make
+# slower variants perform more snapshots, measuring different amounts of work.
+# These bounded CPU workloads use one epoch and still snapshot at EOF.
+EPOCH_INTERVAL = timedelta(days=1)
 
 # Keep this a shortlist, not a Cartesian product. Large native cases below
 # confirm scale without making every simulated comparison prohibitively slow.
@@ -146,7 +150,7 @@ def build_window(case, n, path):
 
     def action():
         late.clear()
-        run_main(flow)
+        run_main(flow, epoch_interval=EPOCH_INTERVAL)
 
     def verify(_):
         rows = [json.loads(line) for line in path.read_text().splitlines()]
@@ -195,7 +199,7 @@ def build_count(case, n, path):
 
     def action():
         late.clear()
-        run_main(flow)
+        run_main(flow, epoch_interval=EPOCH_INTERVAL)
 
     def verify(_):
         rows = [json.loads(line) for line in path.read_text().splitlines()]
@@ -238,7 +242,7 @@ def build_core(case, n):
 
     def action():
         out.clear()
-        run_main(flow)
+        run_main(flow, epoch_interval=EPOCH_INTERVAL)
 
     expected_counts = Counter(expected)
 

@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import shutil
+import subprocess
 from pathlib import Path
 
 import bytewax._bytewax as native
@@ -41,7 +42,12 @@ for folder in sorted(Path("/tmp").glob("profile.*.out")):
             shutil.copyfileobj(source, target)
 
 metadata = {
-    "commit": os.environ.get("GITHUB_SHA"),
+    "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+    "workflow_commit": os.environ.get("GITHUB_SHA"),
+    "harness_commit": os.environ.get("BENCHMARK_HARNESS_COMMIT"),
+    "workload_sha256": hashlib.sha256(
+        Path("benchmarks/codspeed/workloads.py").read_bytes()
+    ).hexdigest(),
     "github_run_id": os.environ.get("GITHUB_RUN_ID"),
     "codspeed_run_id": os.environ.get("CODSPEED_RUN_ID"),
     "python": platform.python_version(),
