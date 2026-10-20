@@ -1,66 +1,42 @@
-name: benchmarks
-
+name: CodSpeed stall diagnostics
 on:
-  push:
-    branches:
-      - "main"
-  pull_request: {}
   workflow_dispatch:
-
 permissions:
   contents: read
-  # CodSpeed authenticates uploads with GitHub OIDC; no token secret.
-  id-token: write
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: true
-
+  actions: read
 jobs:
-  benchmarks:
-    name: benchmarks (${{ matrix.mode }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - mode: simulation
-            markers: "not benchmark_walltime"
-          - mode: walltime
-            markers: "benchmark_walltime"
-    env:
-      # Show the current benchmark even if it never finishes.
-      PYTHONUNBUFFERED: "1"
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: actions/download-artifact@v4
         with:
-          version: "0.11.11"
-          python-version: "3.12"
-          activate-environment: true
-          venv-path: venv
-      - uses: dsherret/rust-toolchain-file@v1
-      - uses: extractions/setup-just@v4
-      - name: Prep build venv
-        shell: bash
-        run: uv pip sync --strict requirements/build-py3.12.txt
-      - name: Build wheel
-        shell: bash
-        run: just build
-      - name: Install wheel
-        shell: bash
+          name: wheels-linux-x86_64-3.12
+          run-id: 39475555986
+          github-token: ${{ github.token }}
+          path: wheel
+      - name: Install pinned reproduction environment
         run: |
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          uv pip install -v --no-deps $WHEEL_FILE
-      - name: Run benchmarks
-        uses: CodSpeedHQ/action@v5
-        timeout-minutes: 10
+          sudo apt-get update -qq
+          sudo apt-get install -y gdb libc6-dbg python3-venv
+          curl -Lf -o /tmp/valgrind.deb https://github.com/CodSpeedHQ/valgrind-codspeed/releases/download/3.26.0-0codspeed9/valgrind_3.26.0-0codspeed9_ubuntu-24.04_amd64.deb
+          sudo dpkg -i /tmp/valgrind.deb
+          /usr/bin/python3 -m venv venv
+          venv/bin/pip install wheel/*.whl pytest==9.1.1 pytest-codspeed==5.0.3
+          valgrind --version
+          venv/bin/python --version
+      - name: Capture bounded reproductions and guest thread stacks
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          for case in native none simulation fair no-perf; do
+            venv/bin/python benchmark/codspeed_diagnostics/supervise.py "$case" --output diagnostics
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          # Valgrind serializes worker threads; the four-worker fan-out
-          # benchmark stalled in simulation. Keep measuring it with
-          # walltime, whose results are noisier on shared runners.
-          mode: ${{ matrix.mode }}
-          run: >-
-            pytest --codspeed -m '${{ matrix.markers }}'
-            -o faulthandler_timeout=120 pytests/
+          name: codspeed-stall-diagnostics
+          path: |
+            diagnostics/**/*.log
+            diagnostics/**/*.json
