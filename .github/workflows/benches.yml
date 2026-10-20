@@ -42,6 +42,8 @@ jobs:
           uv pip install -v --no-deps $WHEEL_FILE
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v5
+        env:
+          CODSPEED_EXPERIMENTAL_FAIR_SCHED: "true"
         with:
           # CPU simulation counts instructions instead of timing, so
           # results are stable on shared GitHub-hosted runners.
