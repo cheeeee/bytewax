@@ -3,6 +3,7 @@ from typing import List
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
+from pytest import mark
 
 
 def test_merge():
@@ -54,6 +55,7 @@ def _cluster_main_4thread(flow: Dataflow) -> None:
     cluster_main(flow, [], 0, worker_count_per_proc=4)
 
 
+@mark.benchmark_walltime
 def test_merge_fan_out_4thread_benchmark(benchmark):
     out = []
     flow = build_fan_out_merge_dataflow(out)

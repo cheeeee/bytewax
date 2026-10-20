@@ -18,7 +18,20 @@ concurrency:
 
 jobs:
   benchmarks:
+    name: benchmarks (${{ matrix.mode }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: simulation
+            markers: "not benchmark_walltime"
+          - mode: walltime
+            markers: "benchmark_walltime"
+    env:
+      # Show the current benchmark even if it never finishes.
+      PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v8.1.0
@@ -42,8 +55,12 @@ jobs:
           uv pip install -v --no-deps $WHEEL_FILE
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v5
+        timeout-minutes: 10
         with:
-          # CPU simulation counts instructions instead of timing, so
-          # results are stable on shared GitHub-hosted runners.
-          mode: simulation
-          run: just test-benchmark
+          # Valgrind serializes worker threads; the four-worker fan-out
+          # benchmark stalled in simulation. Keep measuring it with
+          # walltime, whose results are noisier on shared runners.
+          mode: ${{ matrix.mode }}
+          run: >-
+            pytest --codspeed -m '${{ matrix.markers }}'
+            -o faulthandler_timeout=120 pytests/
