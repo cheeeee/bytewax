@@ -6,6 +6,14 @@ on:
       - "main"
   pull_request: {}
   workflow_dispatch:
+    inputs:
+      suite:
+        description: "Benchmark suite (hotpaths is the bounded A/B shortlist)"
+        type: choice
+        default: all
+        options:
+          - all
+          - hotpaths
 
 permissions:
   contents: read
@@ -13,12 +21,16 @@ permissions:
   id-token: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
+  # Manual A/B runs retain their pinned commit when the branch advances.
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   benchmarks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PYTHONHASHSEED: "0"
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v8.1.0
@@ -40,7 +52,14 @@ jobs:
         run: |
           WHEEL_FILE=$(ls ./dist/*.whl)
           uv pip install -v --no-deps $WHEEL_FILE
+      - name: Native hot-path screening
+        if: inputs.suite == 'hotpaths'
+        shell: bash
+        run: |
+          mkdir -p ab-results
+          python benchmarks/codspeed/native.py --output ab-results/native.json
       - name: Run benchmarks
+        id: codspeed
         uses: CodSpeedHQ/action@v5
         env:
           CODSPEED_EXPERIMENTAL_FAIR_SCHED: "true"
@@ -48,4 +67,16 @@ jobs:
           # CPU simulation counts instructions instead of timing, so
           # results are stable on shared GitHub-hosted runners.
           mode: simulation
-          run: just test-benchmark
+          runner-version: "5.5.0"
+          run: ${{ inputs.suite == 'hotpaths' && 'pytest --codspeed benchmarks/codspeed/test_hotpaths.py' || 'just test-benchmark' }}
+      - name: Collect A/B evidence
+        if: always() && inputs.suite == 'hotpaths'
+        env:
+          CODSPEED_RUN_ID: ${{ steps.codspeed.outputs.run-id }}
+        run: python benchmarks/codspeed/capture.py
+      - uses: actions/upload-artifact@v6
+        if: always() && inputs.suite == 'hotpaths'
+        with:
+          name: hotpaths-${{ github.sha }}-${{ github.run_attempt }}
+          path: ab-results
+          if-no-files-found: error
