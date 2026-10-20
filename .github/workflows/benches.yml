@@ -14,6 +14,18 @@ on:
         options:
           - all
           - hotpaths
+      revision:
+        description: "Optional existing commit in this fork to benchmark"
+        type: string
+        default: ""
+      part:
+        description: "Split expensive baseline simulations without changing their inputs"
+        type: choice
+        default: all
+        options:
+          - all
+          - remainder
+          - dense-large
 
 permissions:
   contents: read
@@ -28,11 +40,15 @@ concurrency:
 jobs:
   benchmarks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # A large unoptimized count can exceed 25 minutes under Valgrind alone.
+    # Native screening retains its independent 55-second deadline.
+    timeout-minutes: 45
     env:
       PYTHONHASHSEED: "0"
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision || github.sha }}
       - uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "0.11.11"
@@ -51,9 +67,9 @@ jobs:
         shell: bash
         run: |
           WHEEL_FILE=$(ls ./dist/*.whl)
-          uv pip install -v --no-deps $WHEEL_FILE
+          uv pip install -v --no-deps "$WHEEL_FILE"
       - name: Native hot-path screening
-        if: inputs.suite == 'hotpaths'
+        if: inputs.suite == 'hotpaths' && inputs.part != 'dense-large'
         shell: bash
         run: |
           mkdir -p ab-results
@@ -68,15 +84,27 @@ jobs:
           # results are stable on shared GitHub-hosted runners.
           mode: simulation
           runner-version: "5.5.0"
-          run: ${{ inputs.suite == 'hotpaths' && 'pytest --codspeed benchmarks/codspeed/test_hotpaths.py' || 'just test-benchmark' }}
+          run: ${{ inputs.suite != 'hotpaths' && 'just test-benchmark' || inputs.part == 'dense-large' && 'pytest --codspeed benchmarks/codspeed/test_hotpaths.py -k count_dense_file-100000' || inputs.part == 'remainder' && 'pytest --codspeed benchmarks/codspeed/test_hotpaths.py -k "not count_dense_file-100000"' || 'pytest --codspeed benchmarks/codspeed/test_hotpaths.py' }}
       - name: Collect A/B evidence
         if: always() && inputs.suite == 'hotpaths'
         env:
           CODSPEED_RUN_ID: ${{ steps.codspeed.outputs.run-id }}
-        run: python benchmarks/codspeed/capture.py
+        run: |
+          python benchmarks/codspeed/capture.py
+          # Historical capture.py versions used GITHUB_SHA. When checking out
+          # a requested revision, distinguish it from the workflow commit.
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          path = Path("ab-results/codspeed.json")
+          data = json.loads(path.read_text())
+          data["workflow_commit"] = os.environ["GITHUB_SHA"]
+          data["commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          path.write_text(json.dumps(data, indent=2) + "\n")
+          PY
       - uses: actions/upload-artifact@v6
         if: always() && inputs.suite == 'hotpaths'
         with:
-          name: hotpaths-${{ github.sha }}-${{ github.run_attempt }}
+          name: hotpaths-${{ inputs.part }}-${{ github.sha }}-${{ github.run_attempt }}
           path: ab-results
           if-no-files-found: error
