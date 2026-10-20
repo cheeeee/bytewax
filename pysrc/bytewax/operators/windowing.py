@@ -1465,6 +1465,16 @@ def window(
     :returns: Window result streams.
 
     """
+    # Only the built-in counter and exact built-in sliding windower can
+    # combine updates without changing observable user callbacks.
+    logic_type = (
+        _CountWindowOperatorLogic
+        if isinstance(builder, _CountWindowBuilder)
+        and type(windower) is SlidingWindower
+        and windower.length > windower.offset
+        and not ordered
+        else _WindowLogic
+    )
 
     def shim_builder(
         resume_state: Optional[_WindowSnapshot],
@@ -1476,7 +1486,7 @@ def window(
                 window_id: builder(logic_state)
                 for window_id, logic_state in resume_state.logic_states.items()
             }
-            return _WindowLogic(
+            return logic_type(
                 clock_logic,
                 windower_logic,
                 builder,
@@ -1487,7 +1497,7 @@ def window(
         else:
             clock_logic = clock.build(None)
             windower_logic = windower.build(None)
-            return _WindowLogic(
+            return logic_type(
                 clock_logic,
                 windower_logic,
                 builder,
@@ -1864,11 +1874,57 @@ def count_window(
         keyed,
         clock,
         windower,
-        lambda: 0,
-        lambda s, _: s + 1,
-        lambda s, t: s + t,
+        int,
+        _count_add,
+        _count_merge,
         ordered=False,
     )
+
+
+def _count_add(state: int, value: Any) -> int:
+    return state + 1
+
+
+def _count_merge(left: int, right: int) -> int:
+    return left + right
+
+
+class _CountWindowBuilder:
+    def __call__(self, resume_state: Optional[int]) -> "_FoldWindowLogic[Any, int]":
+        return _FoldWindowLogic(
+            _count_add, _count_merge, 0 if resume_state is None else resume_state
+        )
+
+
+class _CountWindowOperatorLogic(_WindowLogic[V, int, SC, _SlidingWindowerState, int]):
+    def _handle_inserts(
+        self, due_entries: List[_WindowQueueEntry[V]]
+    ) -> Iterable[_WindowEvent[V, int]]:
+        if len(due_entries) <= 1:
+            return super()._handle_inserts(due_entries)
+        windower = cast(_SlidingWindowerLogic, self.windower)
+        # Equal first/last window IDs identify a time slice even when length
+        # is not divisible by offset. Dict insertion order preserves the
+        # first opening order of windows for disordered arrivals as well.
+        slices: Dict[Tuple[int, int], Tuple[datetime, int]] = {}
+        for _, timestamp in due_entries:
+            since_origin = timestamp - windower.align_to
+            bounds = (
+                (since_origin - windower.length) // windower.offset + 1,
+                since_origin // windower.offset,
+            )
+            previous = slices.get(bounds)
+            slices[bounds] = (timestamp, 1 if previous is None else previous[1] + 1)
+        for timestamp, count in slices.values():
+            for window_id in windower.open_for(timestamp):
+                logic = self.logics.get(window_id)
+                if logic is None:
+                    logic = self.builder(None)
+                    self.logics[window_id] = logic
+                cast(_FoldWindowLogic[V, int], logic).state += count
+        # Only the ordinary per-window integers survive the batch. Snapshots
+        # and the operator graph remain compatible with the scalar counter.
+        return _EMPTY
 
 
 @dataclass
@@ -2025,6 +2081,12 @@ def fold_window(
         state = resume_state if resume_state is not None else builder()
         return _FoldWindowLogic(folder, merger, state)
 
+    if builder is int and folder is _count_add and merger is _count_merge:
+        # These identities imply S is int; the type checker cannot infer it.
+        count_builder = cast(
+            Callable[[Optional[S]], WindowLogic[V, S, S]], _CountWindowBuilder()
+        )
+        return window("window", up, clock, windower, count_builder, ordered)
     return window("window", up, clock, windower, shim_builder, ordered)
 
 
