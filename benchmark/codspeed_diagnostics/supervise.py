@@ -13,14 +13,18 @@ parser = argparse.ArgumentParser()
 parser.add_argument("case", choices=["native", "none", "simulation", "fair", "no-perf"])
 parser.add_argument("--output", required=True)
 parser.add_argument("--timeout", type=int, default=75)
+parser.add_argument("--program", help="Optional native minimal reproducer")
 args = parser.parse_args()
 directory = Path(args.output).resolve() / args.case
 directory.mkdir(parents=True, exist_ok=True)
 environment = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONMALLOC="malloc")
 command = [sys.executable, str(Path(__file__).with_name("probe.py")), "plain"]
+if args.program:
+    command = [str(Path(args.program).resolve())]
 if args.case not in ("native", "none"):
     environment.update(CODSPEED_ENV="runner", CODSPEED_PROFILE_FOLDER=str(directory))
-    command[-1] = "simulation"
+    if not args.program:
+        command[-1] = "simulation"
     if args.case == "no-perf":
         environment["DIAG_NO_PERF"] = "1"
     command = [
@@ -54,6 +58,17 @@ with (directory / "process.log").open("w") as output:
                          "pid,tid,stat,pcpu,time,wchan:32,comm"],
                         stdout=snapshot, stderr=subprocess.STDOUT,
                     )
+                    for task in sorted(Path(f"/proc/{process.pid}/task").glob("*")):
+                        try:
+                            snapshot.write(f"\n{task.name}: {task.joinpath('syscall').read_text()}")
+                        except OSError as error:
+                            snapshot.write(f"\n{task.name}: {error}\n")
+                    for fd in Path(f"/proc/{process.pid}/fd").glob("*"):
+                        if int(fd.name) > 1000:
+                            try:
+                                snapshot.write(f"\nfd {fd.name}: {fd.readlink()}")
+                            except OSError:
+                                pass
                 if args.case != "native":
                     with (directory / f"stacks-{after}.log").open("w") as snapshot:
                         try:

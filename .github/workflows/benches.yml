@@ -1,9 +1,15 @@
 name: CodSpeed stall diagnostics
 on:
   workflow_dispatch:
+    inputs:
+      stage:
+        type: choice
+        options: [investigate, validate]
+        default: validate
 permissions:
   contents: read
   actions: read
+  id-token: write
 jobs:
   diagnose:
     runs-on: ubuntu-24.04
@@ -27,12 +33,35 @@ jobs:
           valgrind --version
           venv/bin/python --version
       - name: Capture bounded reproductions and guest thread stacks
+        if: inputs.stage == 'investigate'
         env:
           PYTHONUNBUFFERED: '1'
         run: |
           for case in native none simulation fair no-perf; do
             venv/bin/python benchmark/codspeed_diagnostics/supervise.py "$case" --output diagnostics
           done
+      - name: Validate minimal reproducer and repeated fair scheduling
+        if: inputs.stage == 'validate'
+        run: |
+          cc -O2 -g -pthread benchmark/codspeed_diagnostics/starvation.c -o /tmp/starvation
+          venv/bin/python benchmark/codspeed_diagnostics/supervise.py simulation --output diagnostics/minimal --program /tmp/starvation --timeout 35
+          venv/bin/python benchmark/codspeed_diagnostics/supervise.py fair --output diagnostics/minimal --program /tmp/starvation --timeout 35
+          for attempt in 1 2 3; do
+            venv/bin/python benchmark/codspeed_diagnostics/supervise.py fair --output "diagnostics/repeat-$attempt"
+          done
+          venv/bin/pip install -r requirements/build-py3.12.txt
+          echo "$PWD/venv/bin" >> "$GITHUB_PATH"
+      - name: Validate actual CodSpeed action on all 12 benchmarks
+        if: inputs.stage == 'validate'
+        uses: CodSpeedHQ/action@v5
+        timeout-minutes: 10
+        env:
+          CODSPEED_EXPERIMENTAL_FAIR_SCHED: 'true'
+          PYTHONUNBUFFERED: '1'
+        with:
+          runner-version: '5.5.0'
+          mode: simulation
+          run: pytest --codspeed -o faulthandler_timeout=120 pytests/
       - uses: actions/upload-artifact@v4
         if: always()
         with:
