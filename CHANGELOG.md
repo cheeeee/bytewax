@@ -9,9 +9,11 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-- Fixes `python -m bytewax.run` on Windows with an absolute path like
-  `C:\proj\flow.py:flow`: the drive letter's colon was taken as the
-  `module:dataflow` separator, so the module was looked up as `C`.
+- {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
+  forever at startup when the brokers are unreachable. It now gives
+  up fetching topic metadata after 30 seconds and fails with a
+  `RuntimeError` naming the brokers and topic. See "Startup and
+  Unreachable Brokers" in the Kafka guide.
 
 - Fixes `bytewax.connectors.kafka.serde` failing to import with
   `confluent-kafka>=2.7` unless the `confluent-kafka[schemaregistry]`
@@ -19,6 +21,61 @@ notes on GitHub when we make a new release.__
   `PlainAvroDeserializer` no longer need Schema Registry
   dependencies; they still accept a
   `confluent_kafka.schema_registry.Schema`.
+
+- Fixes `python -m bytewax.run` on Windows with an absolute path like
+  `C:\proj\flow.py:flow`: the drive letter's colon was taken as the
+  `module:dataflow` separator, so the module was looked up as `C`.
+
+- Fixes a bug where {py:obj}`~bytewax.testing.TestingSource.PAUSE`
+  and already-triggered {py:obj}`~bytewax.testing.TestingSource.ABORT`
+  items were not counted in the source's resume state, causing
+  resumed executions to rewind and re-emit items that had already
+  been processed.
+
+- Fixes {py:obj}`~bytewax.inputs.batch_async` never closing the event
+  loop it creates, nor the source async iterator, when it finishes or
+  its partition is closed. Each use leaked file descriptors until
+  garbage collection, and the source's cleanup (e.g. closing a
+  websocket) didn't run. A loop passed in with `loop=` is still left
+  open. Reported in #536 by @Chittaranjans.
+
+- Fixes {py:obj}`~bytewax.tracing.setup_tracing` hanging forever
+  instead of raising a `RuntimeError` when tracing can't be set up:
+  when it is called a second time in the same process, or when the
+  tracing config is invalid (e.g. a malformed OTLP endpoint URL).
+  Tracing can only be set up once per process.
+
+- This is the last release that supports Python 3.8 and 3.9, which
+  are end-of-life upstream. The next release will require Python 3.10
+  or newer.
+
+- Adds support for Python 3.13 and 3.14, with wheels for Linux, macOS
+  and Windows (#564). The Rust core now uses PyO3 0.25 instead of
+  0.21. There are no wheels for the free-threaded builds (`3.13t`,
+  `3.14t`).
+
+- Fixes {py:obj}`~bytewax.connectors.kafka.KafkaSource` hanging at
+  startup when an `oauth_cb` is set in `add_config` (e.g. with
+  `"sasl.mechanism": "OAUTHBEARER"`): the callback was never called
+  while fetching topic metadata (#541, #547).
+
+- Linux x86_64 wheels are now `manylinux2014` (`manylinux_2_17`)
+  wheels and need glibc 2.17 or newer, like the aarch64 and armv7
+  wheels already did. The v0.21.1 x86_64 wheels needed glibc 2.31, so
+  they did not install on e.g. RHEL 8 or Debian 10.
+
+- The `bytewax/bytewax` Docker images are now based on Debian 12
+  (bookworm) instead of Debian 11 (bullseye), and are also published
+  for Python 3.13 and 3.14.
+
+- Building Bytewax from source now uses Rust 1.86.0 (pinned in
+  `rust-toolchain.toml`) instead of 1.74.1.
+
+- Fixes the type hints of
+  {py:obj}`~bytewax.operators.windowing.collect_window` not accepting
+  the `ordered` argument, so type checkers rejected
+  `collect_window(..., ordered=False)` even though it works at
+  runtime.
 
 ## v0.21.1
 
