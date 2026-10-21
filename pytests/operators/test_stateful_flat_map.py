@@ -1,11 +1,52 @@
 import re
+import weakref
 from datetime import timedelta
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.operators import StatefulLogic, _StatefulFlatMapLogic
+from bytewax.operators import (
+    StatefulLogic,
+    _StatefulFlatMapLogic,
+    _StatefulLogic,
+)
 from bytewax.testing import TestingSink, TestingSource, run_main
-from pytest import raises
+from pytest import mark, raises
+
+
+@mark.parametrize("discard", [False, True])
+def test_stateful_flat_map_releases_replaced_state(discard):
+    # An emitted generator may observe state lifetime. Retained replacements
+    # release the old state before consuming output; discard releases it after.
+    def exercise(batched):
+        class State:
+            pass
+
+        state = State()
+        old = weakref.ref(state)
+        seen = []
+
+        def mapper(_state, value):
+            seen.append(("mapper", value, old() is not None))
+
+            def output():
+                seen.append(("output", value, old() is not None))
+                yield value
+
+            return (None if discard else value), output()
+
+        if batched:
+            logic = _StatefulFlatMapLogic("audit", mapper, state).as_batch_logic()
+        else:
+            logic = _StatefulLogic(
+                _StatefulFlatMapLogic("audit", mapper, state),
+                lambda s: _StatefulFlatMapLogic("audit", mapper, s),
+            )
+        del state
+        assert logic.on_batch([1, 2]) == ([1, 2], discard)
+        assert old() is None
+        return seen
+
+    assert exercise(True) == exercise(False)
 
 
 def test_stateful_map_logic_discard_on_none():

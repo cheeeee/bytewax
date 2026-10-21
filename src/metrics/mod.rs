@@ -4,30 +4,15 @@ use opentelemetry::{
 };
 use prometheus::default_registry;
 use pyo3::{exceptions::PyRuntimeError, PyErr, PyResult};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
-
-/// Whether [`initialize_metrics`] installed a meter provider.
-///
-/// Without one, every instrument is a no-op and a duration that nobody
-/// can read is not worth two clock reads.
-static METRICS_ENABLED: AtomicBool = AtomicBool::new(false);
-
-/// Start of a timed section, or `None` when there are no metrics to
-/// record it in. See [`with_timer`].
-#[inline]
-pub(crate) fn timer_start() -> Option<Instant> {
-    METRICS_ENABLED.load(Ordering::Relaxed).then(Instant::now)
-}
 
 #[macro_export]
 macro_rules! with_timer {
     ($histogram: expr, $labels: expr, $body: expr) => {{
-        let start = $crate::metrics::timer_start();
+        // A provider can be installed through OpenTelemetry directly;
+        // a flag in our initializer cannot tell whether this instrument is active.
+        let start = std::time::Instant::now();
         let res = $body;
-        if let Some(start) = start {
-            $histogram.record(start.elapsed().as_secs_f64(), &$labels);
-        }
+        $histogram.record(start.elapsed().as_secs_f64(), &$labels);
         res
     }};
 }
@@ -62,6 +47,5 @@ pub(crate) fn initialize_metrics() -> PyResult<()> {
         )
         .build();
     global::set_meter_provider(provider);
-    METRICS_ENABLED.store(true, Ordering::Relaxed);
     Ok(())
 }

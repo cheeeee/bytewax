@@ -1,9 +1,9 @@
 //! Code implementing Bytewax's core operators.
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::hash::BuildHasherDefault;
 
 use chrono::DateTime;
@@ -646,17 +646,14 @@ where
             // we only modify state carefully in epoch order once we
             // know we won't be getting any input on closed epochs.
             //
-            // Hash maps and sets here: a tree costs a string
-            // comparison per level for every touch of every key. Where
-            // the order of keys is observable (the order logic is
-            // called, the order output is emitted, the order
-            // snapshots are taken), keys are sorted at that point.
-            let mut logics: HashMap<StateKey, StatefulBatchLogic> = HashMap::new();
+            // Keep persistent indexes ordered: they release entries on
+            // discard and avoid peak-sized hash scans and EOF sorting.
+            let mut logics: BTreeMap<StateKey, StatefulBatchLogic> = BTreeMap::new();
             // Contains the last known return value for
             // `logic.notify_at` for each key (if any). We don't
             // snapshot this because the logic itself should contain
             // any notify times within.
-            let mut sched_cache: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
+            let mut sched_cache: BTreeMap<StateKey, DateTime<Utc>> = BTreeMap::new();
 
             // Here we have "buffers" that store items across
             // activations.
@@ -673,7 +670,7 @@ where
             // only snapshot state of keys that could have resulted in
             // state modifications. This is drained after each epoch
             // is processed.
-            let mut awoken_keys_this_epoch_buffer: HashSet<StateKey> = HashSet::new();
+            let mut awoken_keys_this_epoch_buffer: BTreeSet<StateKey> = BTreeSet::new();
 
             move |input_frontiers| {
                 debug_span_if_traced!("operator", operator = op_name).in_scope(|| {
@@ -829,13 +826,11 @@ where
 
                             // Then call all logic that has a due
                             // notification.
-                            let mut notify_keys: Vec<_> = sched_cache
+                            let notify_keys: Vec<_> = sched_cache
                                 .iter()
                                 .filter(|(_key, sched)| **sched <= now)
                                 .map(|(key, sched)| (key.clone(), *sched))
                                 .collect();
-                            // Notify in key order.
-                            notify_keys.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
                             if !notify_keys.is_empty() {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for (key, _sched) in notify_keys {
@@ -886,13 +881,8 @@ where
                             if input_frontiers.is_eof() {
                                 let mut discarded_keys = Vec::new();
 
-                                // Finish the keys in key order.
-                                let mut eof_keys: Vec<&StateKey> = logics.keys().collect();
-                                eof_keys.sort_unstable();
-
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    for key in eof_keys {
-                                        let logic = &logics[key];
+                                    for (key, logic) in logics.iter() {
                                         let (output, is_complete) = with_timer!(
                                             on_eof_histogram,
                                             labels,
@@ -971,14 +961,9 @@ where
                                 // Go through all keys awoken in this
                                 // epoch. This might involve keys from the
                                 // previous activation.
+                                // The tree is already in snapshot key order.
+                                let snap_keys = std::mem::take(&mut awoken_keys_this_epoch_buffer);
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    // Finally drain
-                                    // `awoken_keys_buffer` since the
-                                    // epoch is over. In key order.
-                                    let mut snap_keys: Vec<_> = std::mem::take(&mut awoken_keys_this_epoch_buffer)
-                                        .into_iter()
-                                        .collect();
-                                    snap_keys.sort_unstable();
                                     for key in snap_keys {
                                         let change = if let Some(logic) = logics.get(&key) {
                                             let state = with_timer!(

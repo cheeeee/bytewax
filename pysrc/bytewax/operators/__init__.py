@@ -2911,10 +2911,9 @@ class _StatefulFlatMapBatchLogic(StatefulBatchLogic[V, W, S]):
     @override
     def on_batch(self, values: List[V]) -> Tuple[Iterable[W], bool]:
         mapper = self.mapper
-        state = self.state
         out: List[W] = []
         for value in values:
-            res = mapper(state, value)
+            res = mapper(self.state, value)
             try:
                 state, ws = res
             except TypeError as ex:
@@ -2925,12 +2924,18 @@ class _StatefulFlatMapBatchLogic(StatefulBatchLogic[V, W, S]):
                     f"got a {type(res)!r} instead"
                 )
                 raise TypeError(msg) from ex
+            discard = state is None
+            if not discard:
+                # Match on_item: release replaced state before consuming ws.
+                self.state = state
+            del res, state
             out.extend(ws)
-            # A `None` state discards the logic, and the next value
-            # starts again from `None`.
+            if discard:
+                # Match _StatefulLogic: keep discarded state alive until ws
+                # is consumed, then start the next item from None.
+                self.state = None
 
-        self.state = state
-        return (out, state is None)
+        return (out, self.state is None)
 
     @override
     def on_notify(self) -> Tuple[Iterable[W], bool]:

@@ -4,6 +4,9 @@ pub(crate) mod dataflow;
 pub(crate) mod errors;
 pub(crate) mod inputs;
 pub(crate) mod metrics;
+
+#[cfg(test)]
+mod observability_tests;
 pub(crate) mod operators;
 pub(crate) mod outputs;
 pub(crate) mod pyo3_extensions;

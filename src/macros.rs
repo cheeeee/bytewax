@@ -62,8 +62,7 @@ macro_rules! log_func {
     }};
 }
 
-/// A `debug` span for a hot path, which is not even built unless a
-/// subscriber has been set.
+/// A `debug` span for a hot path, built when tracing or log can consume it.
 ///
 /// Building a span that nobody listens to still costs a callsite
 /// check and, with the `log` feature, a `log` level check. An
@@ -71,7 +70,9 @@ macro_rules! log_func {
 #[macro_export]
 macro_rules! debug_span_if_traced {
     ($($args:tt)*) => {
-        if tracing::dispatcher::has_been_set() {
+        if tracing::dispatcher::has_been_set()
+            || tracing::log::max_level() >= tracing::log::LevelFilter::Debug
+        {
             tracing::debug_span!($($args)*)
         } else {
             tracing::Span::none()
@@ -83,7 +84,9 @@ macro_rules! debug_span_if_traced {
 #[macro_export]
 macro_rules! trace_span_if_traced {
     ($($args:tt)*) => {
-        if tracing::dispatcher::has_been_set() {
+        if tracing::dispatcher::has_been_set()
+            || tracing::log::max_level() >= tracing::log::LevelFilter::Trace
+        {
             tracing::trace_span!($($args)*)
         } else {
             tracing::Span::none()
