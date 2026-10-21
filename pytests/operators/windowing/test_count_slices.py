@@ -15,6 +15,39 @@ from bytewax.operators.windowing import (
 ORIGIN = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
 
+@pytest.mark.parametrize("length,offset", [(2, 1), (10, 3), (100, 1)])
+def test_count_metadata_and_counts_across_density_changes(length, offset):
+    conf = SlidingWindower(timedelta(seconds=length), timedelta(seconds=offset), ORIGIN)
+    clock = EventClock(
+        lambda value: value,
+        timedelta(days=1),
+        now_getter=lambda: ORIGIN,
+        to_system_utc=lambda _: None,
+    )
+    actual = _CountWindowOperatorLogic(
+        clock.build(None), conf.build(None), _CountWindowBuilder(), False
+    )
+    expected = _WindowLogic(
+        clock.build(None),
+        conf.build(None),
+        lambda state: _FoldWindowLogic(
+            lambda count, _: count + 1, lambda a, b: a + b, state or 0
+        ),
+        False,
+    )
+    sparse = [ORIGIN + timedelta(seconds=i) for i in range(-10, 100)]
+    dense = [ORIGIN + timedelta(microseconds=i) for i in range(-100, 100)]
+    # Repeat nonadjacent slices and cross boundaries on both sides of the
+    # origin. Changing density inside a batch must not affect opening order,
+    # metadata, accumulated counts or subsequent batches' existing windows.
+    for batch in [sparse + dense, dense + sparse, sparse[::-1] + dense[::-1]]:
+        assert actual.on_batch(batch) == expected.on_batch(batch)
+        assert actual.snapshot() == expected.snapshot()
+        assert actual.notify_at() == expected.notify_at()
+    assert actual.on_eof() == expected.on_eof()
+    assert actual.snapshot() == expected.snapshot()
+
+
 @pytest.mark.parametrize("length,offset", [(10, 3), (10, 1), (100, 1), (7, 4)])
 @pytest.mark.parametrize("batch_size", [1, 2, 200])
 def test_count_slices_restore_match_scalar_fold(length, offset, batch_size):

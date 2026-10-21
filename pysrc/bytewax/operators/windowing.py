@@ -1906,22 +1906,33 @@ class _CountWindowOperatorLogic(_WindowLogic[V, int, SC, _SlidingWindowerState, 
         # Equal first/last window IDs identify a time slice even when length
         # is not divisible by offset. Dict insertion order preserves the
         # first opening order of windows for disordered arrivals as well.
-        slices: Dict[Tuple[int, int], Tuple[datetime, int]] = {}
+        slices: Dict[Tuple[int, int], int] = {}
+        align_to, length, offset = windower.align_to, windower.length, windower.offset
         for _, timestamp in due_entries:
-            since_origin = timestamp - windower.align_to
+            since_origin = timestamp - align_to
             bounds = (
-                (since_origin - windower.length) // windower.offset + 1,
-                since_origin // windower.offset,
+                (since_origin - length) // offset + 1,
+                since_origin // offset,
             )
-            previous = slices.get(bounds)
-            slices[bounds] = (timestamp, 1 if previous is None else previous[1] + 1)
-        for timestamp, count in slices.values():
-            for window_id in windower.open_for(timestamp):
-                logic = self.logics.get(window_id)
+            slices[bounds] = slices.get(bounds, 0) + 1
+        # The exact built-in windower/counter selected by `window` lets us
+        # reuse these bounds. Calling `open_for` would calculate them again,
+        # allocate a list and walk it before we can update the counters. That
+        # repeated work is especially costly when every slice has one item.
+        opened = windower.state.opened
+        logics = cast(Dict[int, _FoldWindowLogic[V, int]], self.logics)
+        builder = cast(
+            Callable[[Optional[int]], _FoldWindowLogic[V, int]], self.builder
+        )
+        for (first, last), count in slices.items():
+            for window_id in range(first, last + 1):
+                if window_id not in opened:
+                    opened[window_id] = windower._metadata_for(window_id)
+                logic = logics.get(window_id)
                 if logic is None:
-                    logic = self.builder(None)
-                    self.logics[window_id] = logic
-                cast(_FoldWindowLogic[V, int], logic).state += count
+                    logic = builder(None)
+                    logics[window_id] = logic
+                logic.state += count
         # Only the ordinary per-window integers survive the batch. Snapshots
         # and the operator graph remain compatible with the scalar counter.
         return _EMPTY
