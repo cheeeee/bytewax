@@ -1,0 +1,538 @@
+{
+  "commits": {
+    "before": "94b2dcbf79e2deef654a089d2d7f085aabd25739",
+    "after": "d9f89ed57a9abe98e6e97374512e6eef6f6105f6"
+  },
+  "native_sha256": {
+    "before": "17faf44541acbf22219d422f0e73d17d493d0d5bbe94701c7fe8b18cc8958a5d",
+    "after": "17faf44541acbf22219d422f0e73d17d493d0d5bbe94701c7fe8b18cc8958a5d"
+  },
+  "workload_sha256": "eecf2106c699d9b2c1e6f30451097d4038335fa254a3cd9ca42f78e6dfe8c0ec",
+  "seconds": 22.756555707892403,
+  "budget_seconds": 55,
+  "python": "3.12.13 (main, Mar 25 2026, 03:16:06) [Clang 22.1.1 ]",
+  "rows": [
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 10,
+      "repeat": 0,
+      "seconds": 0.001111708115786314,
+      "peak_rss_mib": 34.0625,
+      "digest": "02fd1b324468bf909383fe2ab1bb548c5e6825db51f924fe61a28afbd344f9de",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 10,
+      "repeat": 0,
+      "seconds": 0.0011729588732123375,
+      "peak_rss_mib": 34.140625,
+      "digest": "02fd1b324468bf909383fe2ab1bb548c5e6825db51f924fe61a28afbd344f9de",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 10,
+      "repeat": 1,
+      "seconds": 0.001134792109951377,
+      "peak_rss_mib": 34.21875,
+      "digest": "02fd1b324468bf909383fe2ab1bb548c5e6825db51f924fe61a28afbd344f9de",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 10,
+      "repeat": 1,
+      "seconds": 0.0012125000357627869,
+      "peak_rss_mib": 34.09375,
+      "digest": "02fd1b324468bf909383fe2ab1bb548c5e6825db51f924fe61a28afbd344f9de",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 10,
+      "repeat": 2,
+      "seconds": 0.0011517920065671206,
+      "peak_rss_mib": 34.21875,
+      "digest": "02fd1b324468bf909383fe2ab1bb548c5e6825db51f924fe61a28afbd344f9de",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 10,
+      "repeat": 2,
+      "seconds": 0.0011899578385055065,
+      "peak_rss_mib": 34.21875,
+      "digest": "02fd1b324468bf909383fe2ab1bb548c5e6825db51f924fe61a28afbd344f9de",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 10,
+      "repeat": 0,
+      "seconds": 0.0008993339724838734,
+      "peak_rss_mib": 34.09375,
+      "digest": "77f8cc3dd5fbccee7593d3000fdbff5943bbed09eafd23f7ce6b81af61504e7c",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 10,
+      "repeat": 0,
+      "seconds": 0.0013854161370545626,
+      "peak_rss_mib": 34.203125,
+      "digest": "77f8cc3dd5fbccee7593d3000fdbff5943bbed09eafd23f7ce6b81af61504e7c",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 10,
+      "repeat": 1,
+      "seconds": 0.0008918331004679203,
+      "peak_rss_mib": 34.09375,
+      "digest": "77f8cc3dd5fbccee7593d3000fdbff5943bbed09eafd23f7ce6b81af61504e7c",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 10,
+      "repeat": 1,
+      "seconds": 0.0008997919503599405,
+      "peak_rss_mib": 34.046875,
+      "digest": "77f8cc3dd5fbccee7593d3000fdbff5943bbed09eafd23f7ce6b81af61504e7c",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 10,
+      "repeat": 2,
+      "seconds": 0.0009636250324547291,
+      "peak_rss_mib": 34.0,
+      "digest": "77f8cc3dd5fbccee7593d3000fdbff5943bbed09eafd23f7ce6b81af61504e7c",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 10,
+      "repeat": 2,
+      "seconds": 0.0009430840145796537,
+      "peak_rss_mib": 34.140625,
+      "digest": "77f8cc3dd5fbccee7593d3000fdbff5943bbed09eafd23f7ce6b81af61504e7c",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 100,
+      "repeat": 0,
+      "seconds": 0.0011740420013666153,
+      "peak_rss_mib": 34.21875,
+      "digest": "42fcac33a8751d1ea7e5d1072897c05846f27513927131a9749e4b06c63f3e8b",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 100,
+      "repeat": 0,
+      "seconds": 0.0012432080693542957,
+      "peak_rss_mib": 34.109375,
+      "digest": "42fcac33a8751d1ea7e5d1072897c05846f27513927131a9749e4b06c63f3e8b",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 100,
+      "repeat": 1,
+      "seconds": 0.0011925420258194208,
+      "peak_rss_mib": 34.28125,
+      "digest": "42fcac33a8751d1ea7e5d1072897c05846f27513927131a9749e4b06c63f3e8b",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 100,
+      "repeat": 1,
+      "seconds": 0.0012031251098960638,
+      "peak_rss_mib": 34.265625,
+      "digest": "42fcac33a8751d1ea7e5d1072897c05846f27513927131a9749e4b06c63f3e8b",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 100,
+      "repeat": 2,
+      "seconds": 0.0012905409093946218,
+      "peak_rss_mib": 34.140625,
+      "digest": "42fcac33a8751d1ea7e5d1072897c05846f27513927131a9749e4b06c63f3e8b",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 100,
+      "repeat": 2,
+      "seconds": 0.001203583087772131,
+      "peak_rss_mib": 34.234375,
+      "digest": "42fcac33a8751d1ea7e5d1072897c05846f27513927131a9749e4b06c63f3e8b",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 100,
+      "repeat": 0,
+      "seconds": 0.001419208012521267,
+      "peak_rss_mib": 34.34375,
+      "digest": "0ca86e05a4af7889dbb77e467db40b7337549be3f53e11d861c71c112cefcca9",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 100,
+      "repeat": 0,
+      "seconds": 0.0013053750153630972,
+      "peak_rss_mib": 34.28125,
+      "digest": "0ca86e05a4af7889dbb77e467db40b7337549be3f53e11d861c71c112cefcca9",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 100,
+      "repeat": 1,
+      "seconds": 0.001322000054642558,
+      "peak_rss_mib": 34.375,
+      "digest": "0ca86e05a4af7889dbb77e467db40b7337549be3f53e11d861c71c112cefcca9",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 100,
+      "repeat": 1,
+      "seconds": 0.0013357498683035374,
+      "peak_rss_mib": 34.34375,
+      "digest": "0ca86e05a4af7889dbb77e467db40b7337549be3f53e11d861c71c112cefcca9",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 100,
+      "repeat": 2,
+      "seconds": 0.0013095419853925705,
+      "peak_rss_mib": 34.171875,
+      "digest": "0ca86e05a4af7889dbb77e467db40b7337549be3f53e11d861c71c112cefcca9",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 100,
+      "repeat": 2,
+      "seconds": 0.0012880410067737103,
+      "peak_rss_mib": 34.328125,
+      "digest": "0ca86e05a4af7889dbb77e467db40b7337549be3f53e11d861c71c112cefcca9",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 10000,
+      "repeat": 0,
+      "seconds": 0.008008250035345554,
+      "peak_rss_mib": 36.203125,
+      "digest": "be05b517c02137b53e8fb0ca6c7c626d0946da755d1ea82b01562bda3dacab92",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 10000,
+      "repeat": 0,
+      "seconds": 0.007780082989484072,
+      "peak_rss_mib": 36.015625,
+      "digest": "be05b517c02137b53e8fb0ca6c7c626d0946da755d1ea82b01562bda3dacab92",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 10000,
+      "repeat": 1,
+      "seconds": 0.00751754199154675,
+      "peak_rss_mib": 36.140625,
+      "digest": "be05b517c02137b53e8fb0ca6c7c626d0946da755d1ea82b01562bda3dacab92",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 10000,
+      "repeat": 1,
+      "seconds": 0.007993750041350722,
+      "peak_rss_mib": 36.078125,
+      "digest": "be05b517c02137b53e8fb0ca6c7c626d0946da755d1ea82b01562bda3dacab92",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 10000,
+      "repeat": 2,
+      "seconds": 0.007791999960318208,
+      "peak_rss_mib": 36.265625,
+      "digest": "be05b517c02137b53e8fb0ca6c7c626d0946da755d1ea82b01562bda3dacab92",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 10000,
+      "repeat": 2,
+      "seconds": 0.007643458200618625,
+      "peak_rss_mib": 36.21875,
+      "digest": "be05b517c02137b53e8fb0ca6c7c626d0946da755d1ea82b01562bda3dacab92",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "repeat": 0,
+      "seconds": 0.047190500190481544,
+      "peak_rss_mib": 39.5,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "repeat": 0,
+      "seconds": 0.03874850017018616,
+      "peak_rss_mib": 39.5,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "repeat": 1,
+      "seconds": 0.041584165999665856,
+      "peak_rss_mib": 39.765625,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "repeat": 1,
+      "seconds": 0.047331167152151465,
+      "peak_rss_mib": 39.53125,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "repeat": 2,
+      "seconds": 0.04750929190777242,
+      "peak_rss_mib": 39.546875,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "repeat": 2,
+      "seconds": 0.03966041607782245,
+      "peak_rss_mib": 39.515625,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 100000,
+      "repeat": 0,
+      "seconds": 0.06805099989287555,
+      "peak_rss_mib": 50.78125,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 100000,
+      "repeat": 0,
+      "seconds": 0.06416433304548264,
+      "peak_rss_mib": 50.5625,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 100000,
+      "repeat": 1,
+      "seconds": 0.06838770909234881,
+      "peak_rss_mib": 50.71875,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 100000,
+      "repeat": 1,
+      "seconds": 0.06866566720418632,
+      "peak_rss_mib": 50.765625,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 100000,
+      "repeat": 2,
+      "seconds": 0.06819679192267358,
+      "peak_rss_mib": 50.671875,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 100000,
+      "repeat": 2,
+      "seconds": 0.06865112506784499,
+      "peak_rss_mib": 50.640625,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 100000,
+      "repeat": 0,
+      "seconds": 0.4975061670411378,
+      "peak_rss_mib": 89.21875,
+      "digest": "92433296f8f019f50277cd249338535b9e8637e75bab158e846f220d8e862292",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 100000,
+      "repeat": 0,
+      "seconds": 0.3765712499152869,
+      "peak_rss_mib": 89.015625,
+      "digest": "92433296f8f019f50277cd249338535b9e8637e75bab158e846f220d8e862292",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 100000,
+      "repeat": 1,
+      "seconds": 0.38194554182700813,
+      "peak_rss_mib": 88.953125,
+      "digest": "92433296f8f019f50277cd249338535b9e8637e75bab158e846f220d8e862292",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 100000,
+      "repeat": 1,
+      "seconds": 0.46378516708500683,
+      "peak_rss_mib": 88.921875,
+      "digest": "92433296f8f019f50277cd249338535b9e8637e75bab158e846f220d8e862292",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 100000,
+      "repeat": 2,
+      "seconds": 0.47632404090836644,
+      "peak_rss_mib": 89.234375,
+      "digest": "92433296f8f019f50277cd249338535b9e8637e75bab158e846f220d8e862292",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 100000,
+      "repeat": 2,
+      "seconds": 0.3824362079612911,
+      "peak_rss_mib": 89.015625,
+      "digest": "92433296f8f019f50277cd249338535b9e8637e75bab158e846f220d8e862292",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_dense_file",
+      "n": 1000000,
+      "repeat": 0,
+      "seconds": 0.6833603330887854,
+      "peak_rss_mib": 197.421875,
+      "digest": "b1ac400ff076151eb1ae9dbeff46b4c684c365e7d340b9cf5b862a5741502be0",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_dense_file",
+      "n": 1000000,
+      "repeat": 0,
+      "seconds": 0.6516442920546979,
+      "peak_rss_mib": 197.5,
+      "digest": "b1ac400ff076151eb1ae9dbeff46b4c684c365e7d340b9cf5b862a5741502be0",
+      "status": "passed"
+    },
+    {
+      "variant": "before",
+      "case": "count_sparse_file",
+      "n": 1000000,
+      "repeat": 0,
+      "seconds": 5.3179550410714,
+      "peak_rss_mib": 546.203125,
+      "digest": "1d3147b45c95723a788c405a580d01cd7c6776fab063b9f86ffae5becc409cef",
+      "status": "passed"
+    },
+    {
+      "variant": "after",
+      "case": "count_sparse_file",
+      "n": 1000000,
+      "repeat": 0,
+      "seconds": 4.342277332907543,
+      "peak_rss_mib": 546.28125,
+      "digest": "1d3147b45c95723a788c405a580d01cd7c6776fab063b9f86ffae5becc409cef",
+      "status": "passed"
+    }
+  ],
+  "complete": true,
+  "note": "Action time includes FileSink flush/fsync; setup and verification are excluded. RSS includes input. Three samples per case except one at 1M."
+}

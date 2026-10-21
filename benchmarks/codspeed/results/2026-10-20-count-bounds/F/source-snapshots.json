@@ -1,0 +1,17 @@
+{
+  "test_hotpath[queue_stalled-10]": 0,
+  "test_hotpath[queue_stalled-100000]": 0,
+  "test_hotpath[queue_mixed-100000]": 0,
+  "test_hotpath[window_stalled_file-100000]": 1,
+  "test_hotpath[window_moving_file-100000]": 1,
+  "test_hotpath[count_dense_file-10]": 1,
+  "test_hotpath[count_dense_file-100]": 1,
+  "test_hotpath[count_dense_file-10000]": 1,
+  "test_hotpath[count_dense_file-100000]": 1,
+  "test_hotpath[count_sparse_file-10000]": 1,
+  "test_hotpath[count_keys_file-10000]": 1,
+  "test_hotpath[filter_batch1-100000]": 1,
+  "test_hotpath[map_chain-100000]": 1,
+  "test_hotpath[stateful_1000keys-100000]": 1,
+  "test_hotpath[stateful_100000keys-100000]": 1
+}

@@ -1,0 +1,19 @@
+{
+  "branch": "main-upstream-clone",
+  "reference_results": "../2026-10-20",
+  "workload_sha256": "eecf2106c699d9b2c1e6f30451097d4038335fa254a3cd9ca42f78e6dfe8c0ec",
+  "runs": [
+    {
+      "variant": "F",
+      "label": "Reuse count window bounds",
+      "sha": "d9f89ed57a9abe98e6e97374512e6eef6f6105f6",
+      "github_run_id": 39526572685,
+      "workflow_sha": "d9f89ed57a9abe98e6e97374512e6eef6f6105f6"
+    }
+  ],
+  "discarded_setup_run": {
+    "github_run_id": 39526424941,
+    "reason": "Checkout treated the abbreviated SHA as a branch; no benchmarks ran."
+  },
+  "native_before_sha": "94b2dcbf79e2deef654a089d2d7f085aabd25739"
+}

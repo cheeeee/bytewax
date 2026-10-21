@@ -1,6 +1,9 @@
 Fork hot-path experiments, 2026-10-20
 ===================================
 
+Historical A-E results. The subsequent count-bound reuse experiment is in
+../2026-10-20-count-bounds; it addresses the sparse-count regression below.
+
 Scope and decision
 ------------------
 These are cumulative experiments on cheeeee/bytewax:main-upstream-clone.

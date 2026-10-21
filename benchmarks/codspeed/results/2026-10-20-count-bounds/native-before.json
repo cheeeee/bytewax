@@ -1,0 +1,150 @@
+{
+  "commit": "94b2dcbf79e2deef654a089d2d7f085aabd25739",
+  "seconds": 4.159575207857415,
+  "budget_seconds": 55,
+  "python": "3.12.13 (main, Mar 25 2026, 03:16:06) [Clang 22.1.1 ]",
+  "hashseed": "0",
+  "workload_sha256": "eecf2106c699d9b2c1e6f30451097d4038335fa254a3cd9ca42f78e6dfe8c0ec",
+  "native_sha256": "17faf44541acbf22219d422f0e73d17d493d0d5bbe94701c7fe8b18cc8958a5d",
+  "epoch_interval_seconds": 86400,
+  "rows": [
+    {
+      "case": "queue_stalled",
+      "n": 10,
+      "seconds": 0.00018929201178252697,
+      "peak_rss_mib": 30.21875,
+      "digest": "edc44b4c3466e03f7fe6ae31664c2852c4bbd4c6e7b37603662180d0d5bebe1b",
+      "status": "passed"
+    },
+    {
+      "case": "queue_stalled",
+      "n": 100000,
+      "seconds": 0.056336416164413095,
+      "peak_rss_mib": 44.953125,
+      "digest": "371f518555a967c93ab99ebeb38802e67a28b92f7a00e4cfba10c86086d8a561",
+      "status": "passed"
+    },
+    {
+      "case": "queue_mixed",
+      "n": 100000,
+      "seconds": 0.22365083382464945,
+      "peak_rss_mib": 43.4375,
+      "digest": "371f518555a967c93ab99ebeb38802e67a28b92f7a00e4cfba10c86086d8a561",
+      "status": "passed"
+    },
+    {
+      "case": "window_stalled_file",
+      "n": 100000,
+      "seconds": 0.0742185830604285,
+      "peak_rss_mib": 49.46875,
+      "digest": "fc968c2efcd5cc06cf9050e4454fb0d53f954404d83d5a8978d0c2713efc22be",
+      "status": "passed"
+    },
+    {
+      "case": "window_moving_file",
+      "n": 100000,
+      "seconds": 0.0654589170590043,
+      "peak_rss_mib": 40.125,
+      "digest": "fc968c2efcd5cc06cf9050e4454fb0d53f954404d83d5a8978d0c2713efc22be",
+      "status": "passed"
+    },
+    {
+      "case": "count_dense_file",
+      "n": 10,
+      "seconds": 0.001130332937464118,
+      "peak_rss_mib": 34.1875,
+      "digest": "02fd1b324468bf909383fe2ab1bb548c5e6825db51f924fe61a28afbd344f9de",
+      "status": "passed"
+    },
+    {
+      "case": "count_dense_file",
+      "n": 100,
+      "seconds": 0.0011897499207407236,
+      "peak_rss_mib": 34.203125,
+      "digest": "42fcac33a8751d1ea7e5d1072897c05846f27513927131a9749e4b06c63f3e8b",
+      "status": "passed"
+    },
+    {
+      "case": "count_dense_file",
+      "n": 10000,
+      "seconds": 0.008060624822974205,
+      "peak_rss_mib": 36.109375,
+      "digest": "be05b517c02137b53e8fb0ca6c7c626d0946da755d1ea82b01562bda3dacab92",
+      "status": "passed"
+    },
+    {
+      "case": "count_dense_file",
+      "n": 100000,
+      "seconds": 0.06800387497060001,
+      "peak_rss_mib": 50.75,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "status": "passed"
+    },
+    {
+      "case": "count_sparse_file",
+      "n": 10000,
+      "seconds": 0.04719258309341967,
+      "peak_rss_mib": 39.625,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "case": "count_keys_file",
+      "n": 10000,
+      "seconds": 0.10484987497329712,
+      "peak_rss_mib": 53.890625,
+      "digest": "e1eccb213d35da4310aeb89061d11540eb7943757a75302ed905f7a7bc1551cb",
+      "status": "passed"
+    },
+    {
+      "case": "filter_batch1",
+      "n": 100000,
+      "seconds": 0.0909382498357445,
+      "peak_rss_mib": 33.3125,
+      "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "status": "passed"
+    },
+    {
+      "case": "map_chain",
+      "n": 100000,
+      "seconds": 0.05259429197758436,
+      "peak_rss_mib": 50.28125,
+      "digest": "b66e97ac9dac6f2abb766f1425af1db321e5683654425e40efab3bed59fa62a1",
+      "status": "passed"
+    },
+    {
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "seconds": 0.05680629098787904,
+      "peak_rss_mib": 80.78125,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "status": "passed"
+    },
+    {
+      "case": "stateful_100000keys",
+      "n": 100000,
+      "seconds": 0.21335108298808336,
+      "peak_rss_mib": 112.515625,
+      "digest": "116ff6601ad11974194d530863fb37adb2980921935e57fd512a88b87608b783",
+      "status": "passed"
+    },
+    {
+      "case": "queue_stalled",
+      "n": 1000000,
+      "seconds": 0.4987617500592023,
+      "peak_rss_mib": 184.78125,
+      "digest": "d939d273785c7c132d0af8205fffccb31c0ae164e21f665ae74f2e04143da000",
+      "status": "passed"
+    },
+    {
+      "case": "count_dense_file",
+      "n": 1000000,
+      "seconds": 0.6850575830321759,
+      "peak_rss_mib": 197.59375,
+      "digest": "b1ac400ff076151eb1ae9dbeff46b4c684c365e7d340b9cf5b862a5741502be0",
+      "status": "passed"
+    }
+  ],
+  "complete": true,
+  "note": "One fresh process per case: screening, not a precise estimate of small gains. RSS includes prepared input; verification is untimed."
+}

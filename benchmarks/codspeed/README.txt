@@ -65,6 +65,12 @@ compare.py RESULTS_DIRECTORY rebuilds CPU/native CSV tables and PNG plots
 (matplotlib required only for plotting). profile_counts.py ARTIFACT_DIRECTORY
 prints source snapshot counts from the compressed raw callgraphs.
 
+The count-bound reuse follow-up is in results/2026-10-20-count-bounds.
+count_native.py BEFORE_CHECKOUT AFTER_CHECKOUT --output FILE alternates fresh
+processes for dense/sparse counts from 10 to 1,000,000 events, with a 55-second
+budget. count_report.py RESULTS_DIRECTORY rebuilds that comparison's CSVs and
+focused CPU plot from saved official results and checked output digests.
+
 Runtime source candidates:
   https://github.com/bytewax/bytewax/pull/636
   https://github.com/bytewax/bytewax/pull/621

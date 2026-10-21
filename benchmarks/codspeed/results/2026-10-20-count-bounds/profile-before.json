@@ -1,0 +1,44 @@
+{
+  "case": "count_sparse_file",
+  "n": 10000,
+  "variant": "before",
+  "calls": [
+    {
+      "file": "typing.py",
+      "function": "cast",
+      "primitive_calls": 40012,
+      "total_calls": 40012
+    },
+    {
+      "file": "windowing.py",
+      "function": "intersects",
+      "primitive_calls": 10000,
+      "total_calls": 10000
+    },
+    {
+      "file": "windowing.py",
+      "function": "_handle_inserts",
+      "primitive_calls": 1,
+      "total_calls": 1
+    },
+    {
+      "file": "windowing.py",
+      "function": "open_for",
+      "primitive_calls": 10000,
+      "total_calls": 10000
+    },
+    {
+      "file": "windowing.py",
+      "function": "_metadata_for",
+      "primitive_calls": 10001,
+      "total_calls": 10001
+    },
+    {
+      "file": "windowing.py",
+      "function": "_handle_inserts",
+      "primitive_calls": 11,
+      "total_calls": 11
+    }
+  ],
+  "note": "Call counts only; profiler timing is not used as benchmark evidence."
+}

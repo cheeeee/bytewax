@@ -1,0 +1,22 @@
+{
+  "runtime": "d9f89ed57a9abe98e6e97374512e6eef6f6105f6",
+  "python_tests": {
+    "passed": 350,
+    "skipped": 18,
+    "skipped_reason": "Real Kafka broker not configured"
+  },
+  "focused_window_tests_passed": 53,
+  "mypy_source_files_passed": 23,
+  "ruff": "passed",
+  "public_windowing_signatures": "unchanged",
+  "native_screening_cases_per_variant": 17,
+  "count_native_samples": 52,
+  "count_native_complete": true,
+  "codspeed_cases_passed": 15,
+  "codspeed_workload_matches_baseline": true,
+  "codspeed_source_snapshots": "1 per public dataflow, 0 per isolated queue case",
+  "codspeed_versions_match_previous": true,
+  "ci_native_cases_passed": 17,
+  "ci_native_output_digests_match_local": true,
+  "ci_native_deadline_skips": 0
+}
