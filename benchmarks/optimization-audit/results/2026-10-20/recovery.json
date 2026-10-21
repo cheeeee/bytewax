@@ -1,0 +1,56 @@
+[
+  {
+    "case": "reference",
+    "status": "passed",
+    "files": {
+      "state.jsonl": {
+        "records": 8192,
+        "sha256": "2b482bdbf5e3321d68e7370cd8567ab61452930c3ac80552a77c1d95d024e3cf"
+      },
+      "count.jsonl": {
+        "records": 18,
+        "sha256": "a6515d4413e61825988ba15fa6559f4da43517fb4d39073c81dfd40f75d4ef6a"
+      },
+      "ordered.jsonl": {
+        "records": 1,
+        "sha256": "241281350dd3fd2e749efdd36926f777a36821e9840cafc59c6aa85e7bbe7c4c"
+      }
+    }
+  },
+  {
+    "case": "before-after",
+    "status": "passed",
+    "files": {
+      "state.jsonl": {
+        "records": 8192,
+        "sha256": "2b482bdbf5e3321d68e7370cd8567ab61452930c3ac80552a77c1d95d024e3cf"
+      },
+      "count.jsonl": {
+        "records": 18,
+        "sha256": "a6515d4413e61825988ba15fa6559f4da43517fb4d39073c81dfd40f75d4ef6a"
+      },
+      "ordered.jsonl": {
+        "records": 1,
+        "sha256": "241281350dd3fd2e749efdd36926f777a36821e9840cafc59c6aa85e7bbe7c4c"
+      }
+    }
+  },
+  {
+    "case": "after-before",
+    "status": "passed",
+    "files": {
+      "state.jsonl": {
+        "records": 8192,
+        "sha256": "2b482bdbf5e3321d68e7370cd8567ab61452930c3ac80552a77c1d95d024e3cf"
+      },
+      "count.jsonl": {
+        "records": 18,
+        "sha256": "a6515d4413e61825988ba15fa6559f4da43517fb4d39073c81dfd40f75d4ef6a"
+      },
+      "ordered.jsonl": {
+        "records": 1,
+        "sha256": "241281350dd3fd2e749efdd36926f777a36821e9840cafc59c6aa85e7bbe7c4c"
+      }
+    }
+  }
+]

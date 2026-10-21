@@ -1,0 +1,98 @@
+{
+  "targets": [
+    {
+      "job": "after",
+      "health": "up",
+      "lastError": ""
+    },
+    {
+      "job": "before",
+      "health": "up",
+      "lastError": ""
+    },
+    {
+      "job": "drop_conflicting_family",
+      "health": "up",
+      "lastError": ""
+    }
+  ],
+  "queries": {
+    "up": {
+      "status": "success",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "up",
+              "instance": "127.0.0.1:53907",
+              "job": "before"
+            },
+            "value": [
+              1792548850.722,
+              "1"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "up",
+              "instance": "127.0.0.1:53907",
+              "job": "after"
+            },
+            "value": [
+              1792548850.722,
+              "1"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "up",
+              "instance": "127.0.0.1:53907",
+              "job": "drop_conflicting_family"
+            },
+            "value": [
+              1792548850.722,
+              "1"
+            ]
+          }
+        ]
+      }
+    },
+    "bytewax_partd_write_duration_seconds_count": {
+      "status": "success",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "bytewax_partd_write_duration_seconds_count",
+              "instance": "127.0.0.1:53907",
+              "job": "before",
+              "otel_scope_name": "dataflow",
+              "part_id": "0",
+              "worker_id": "0"
+            },
+            "value": [
+              1792548850.723,
+              "1"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "bytewax_partd_write_duration_seconds_count",
+              "instance": "127.0.0.1:53907",
+              "job": "after",
+              "otel_scope_name": "dataflow",
+              "part_id": "0",
+              "worker_id": "0"
+            },
+            "value": [
+              1792548850.723,
+              "1"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

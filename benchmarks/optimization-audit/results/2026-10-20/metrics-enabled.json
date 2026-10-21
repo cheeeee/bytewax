@@ -1,0 +1,151 @@
+{
+  "budget_seconds": 55,
+  "seconds": 7.970852666068822,
+  "build_files_sha256": {
+    "A": {
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/main-upstream-clone/pysrc/bytewax/operators/__init__.py": "e363f2d677691ec1c58420703363014cd3d1d39443090b899b685c8ec967def4",
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/main-upstream-clone/pysrc/bytewax/operators/windowing.py": "671cf16917f4b7105cde9be8f70b38c0f98eb38f4177f14544bd33f6d536eebe",
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/main-upstream-clone/pysrc/bytewax/_bytewax.cpython-312-darwin.so": "699ce3e04e5e82ebf4f2bb80183d73b41c811bc022b57901fd6fcee311af72ab"
+    },
+    "transfer": {
+      "/Users/nb/conductor/workspaces/bytewax/paris/pysrc/bytewax/operators/__init__.py": "8e4eec77c60ca6e6bb6a4719b757b1900d97d90c3d73d8d5562eb09716fe8554",
+      "/Users/nb/conductor/workspaces/bytewax/paris/pysrc/bytewax/operators/windowing.py": "de89d94b1842d061415acfc679328732995861dcb47009124cdb91d35986689e",
+      "/Users/nb/conductor/workspaces/bytewax/paris/pysrc/bytewax/_bytewax.cpython-312-darwin.so": "62648b410dc6c132a8b1f1ce672a67049600f173925295287650f4b456a83cbf"
+    }
+  },
+  "rows": [
+    {
+      "build": "A",
+      "case": "count_dense_file",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 1.81457050004974,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "count_dense_file",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.06836141692474484,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "count_dense_file",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 0.06713916687294841,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "count_dense_file",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 1.8182873749174178,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "count_dense_file",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 1.8041242500767112,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "count_dense_file",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 0.06905154208652675,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.1512971669435501,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.14549254206940532,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 0.14629183313809335,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 0.15241941600106657,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 0.15294975019060075,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 0.1473815841600299,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "metrics": "enabled",
+      "logging": "ERROR subscriber",
+      "status": "passed"
+    }
+  ],
+  "note": "Screening only; three samples cannot establish small gains. Timers include dataflow startup; RSS includes Python input storage."
+}

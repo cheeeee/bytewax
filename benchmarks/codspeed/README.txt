@@ -51,6 +51,14 @@ Selected candidates (all preserve public API signatures):
   #636: block queue summaries, then count reuse as a separate variant.
   #617: stateful hash maps and batch-level Python logic.
   #620: skip timers/spans with no collector.
+
+Audit update (runtime 19047985): the selection above describes the original
+A-F experiments, not the final transfer package. The observability/lifetime
+audit in ../optimization-audit retains the window/count changes and Python
+stateful batching, restores baseline Rust stateful grouping/indexes, restores
+unconditional histogram recording, and makes the span guard honor Rust log.
+Use that audit's new native measurements for this runtime; the historical
+CodSpeed A-F numbers have not been remeasured for the narrowed package.
 Do not assume dense-window gains generalize: sparse and many-key controls
 are deliberately included. #619 changes Python thread-local lifetime and
 #618 adds an unsafe object representation; neither belongs to this first

@@ -1,0 +1,5 @@
+{"n":10,"live":1,"capacity":14,"hash_ns":1875,"tree_ns":2541,"shrunk_ns":1459}
+{"n":100,"live":1,"capacity":33,"hash_ns":6250,"tree_ns":1917,"shrunk_ns":1458}
+{"n":10000,"live":1,"capacity":10400,"hash_ns":593959,"tree_ns":2083,"shrunk_ns":1458}
+{"n":100000,"live":1,"capacity":48034,"hash_ns":7309125,"tree_ns":2042,"shrunk_ns":1417}
+{"n":1000000,"live":1,"capacity":1662263,"hash_ns":54012416,"tree_ns":2500,"shrunk_ns":1417}

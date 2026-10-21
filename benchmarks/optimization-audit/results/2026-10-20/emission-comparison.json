@@ -1,0 +1,66 @@
+[
+  {
+    "metrics": false,
+    "trace": "off",
+    "workers": 1,
+    "unique_metric_identities_equal": true,
+    "span_schemas_equal": true,
+    "outputs_equal": true
+  },
+  {
+    "metrics": true,
+    "trace": "off",
+    "workers": 1,
+    "unique_metric_identities_equal": true,
+    "span_schemas_equal": true,
+    "outputs_equal": true
+  },
+  {
+    "metrics": true,
+    "trace": "off",
+    "workers": 2,
+    "unique_metric_identities_equal": true,
+    "span_schemas_equal": true,
+    "outputs_equal": true
+  },
+  {
+    "metrics": true,
+    "trace": "logs",
+    "workers": 1,
+    "unique_metric_identities_equal": true,
+    "span_schemas_equal": true,
+    "outputs_equal": true
+  },
+  {
+    "metrics": true,
+    "trace": "otlp",
+    "workers": 1,
+    "unique_metric_identities_equal": true,
+    "span_schemas_equal": true,
+    "outputs_equal": true
+  },
+  {
+    "metrics": true,
+    "trace": "otlp",
+    "workers": 2,
+    "unique_metric_identities_equal": true,
+    "span_schemas_equal": true,
+    "outputs_equal": true
+  },
+  {
+    "metrics": true,
+    "trace": "otlp0",
+    "workers": 1,
+    "unique_metric_identities_equal": true,
+    "span_schemas_equal": true,
+    "outputs_equal": true
+  },
+  {
+    "metrics": true,
+    "trace": "jaeger",
+    "workers": 1,
+    "unique_metric_identities_equal": true,
+    "span_schemas_equal": true,
+    "outputs_equal": true
+  }
+]

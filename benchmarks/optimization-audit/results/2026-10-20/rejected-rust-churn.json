@@ -1,0 +1,384 @@
+{
+  "budget_seconds": 55,
+  "seconds": 38.168293582974,
+  "build_files_sha256": {
+    "A": {
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/main-upstream-clone/pysrc/bytewax/operators/__init__.py": "e363f2d677691ec1c58420703363014cd3d1d39443090b899b685c8ec967def4",
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/main-upstream-clone/pysrc/bytewax/operators/windowing.py": "671cf16917f4b7105cde9be8f70b38c0f98eb38f4177f14544bd33f6d536eebe",
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/main-upstream-clone/pysrc/bytewax/_bytewax.cpython-312-darwin.so": "699ce3e04e5e82ebf4f2bb80183d73b41c811bc022b57901fd6fcee311af72ab"
+    },
+    "F": {
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/optimization-audit/before-pysrc/bytewax/operators/__init__.py": "4ab32da0087fe77c6c170b429459713f214bedb675dd41cff500bf17840c65fe",
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/optimization-audit/before-pysrc/bytewax/operators/windowing.py": "de89d94b1842d061415acfc679328732995861dcb47009124cdb91d35986689e",
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/optimization-audit/before-pysrc/bytewax/_bytewax.cpython-312-darwin.so": "17faf44541acbf22219d422f0e73d17d493d0d5bbe94701c7fe8b18cc8958a5d"
+    },
+    "candidate": {
+      "/Users/nb/conductor/workspaces/bytewax/paris/pysrc/bytewax/operators/__init__.py": "8e4eec77c60ca6e6bb6a4719b757b1900d97d90c3d73d8d5562eb09716fe8554",
+      "/Users/nb/conductor/workspaces/bytewax/paris/pysrc/bytewax/operators/windowing.py": "de89d94b1842d061415acfc679328732995861dcb47009124cdb91d35986689e",
+      "/Users/nb/conductor/workspaces/bytewax/paris/pysrc/bytewax/_bytewax.cpython-312-darwin.so": "c9d7a7ac367b49cf9af9649c2b82768880aa0a508eb453d2042fd2afc50ef2ba"
+    }
+  },
+  "rows": [
+    {
+      "build": "A",
+      "case": "churn",
+      "n": 10,
+      "trial": 0,
+      "seconds": 0.006950792158022523,
+      "tail_seconds": 0.002086792141199112,
+      "tail_callbacks_seconds": 0.001963375136256218,
+      "finalization_seconds": 0.00012341700494289398,
+      "rss_at_tail_mib": 31.328125,
+      "peak_rss_mib": 31.453125,
+      "callbacks": {
+        "create": 10,
+        "delete": 9,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "F",
+      "case": "churn",
+      "n": 10,
+      "trial": 0,
+      "seconds": 0.007379707880318165,
+      "tail_seconds": 0.002220707945525646,
+      "tail_callbacks_seconds": 0.0020712909754365683,
+      "finalization_seconds": 0.00014941697008907795,
+      "rss_at_tail_mib": 31.484375,
+      "peak_rss_mib": 31.59375,
+      "callbacks": {
+        "create": 10,
+        "delete": 9,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "candidate",
+      "case": "churn",
+      "n": 10,
+      "trial": 0,
+      "seconds": 0.005308541934937239,
+      "tail_seconds": 0.0020244999323040247,
+      "tail_callbacks_seconds": 0.0019362079910933971,
+      "finalization_seconds": 8.829194121062756e-05,
+      "rss_at_tail_mib": 31.578125,
+      "peak_rss_mib": 31.765625,
+      "callbacks": {
+        "create": 10,
+        "delete": 9,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "churn",
+      "n": 100,
+      "trial": 0,
+      "seconds": 0.005645208992063999,
+      "tail_seconds": 0.0020749999675899744,
+      "tail_callbacks_seconds": 0.0019885830115526915,
+      "finalization_seconds": 8.641695603728294e-05,
+      "rss_at_tail_mib": 31.375,
+      "peak_rss_mib": 31.5,
+      "callbacks": {
+        "create": 100,
+        "delete": 99,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "F",
+      "case": "churn",
+      "n": 100,
+      "trial": 0,
+      "seconds": 0.00541787501424551,
+      "tail_seconds": 0.0020171250216662884,
+      "tail_callbacks_seconds": 0.001918167108669877,
+      "finalization_seconds": 9.895791299641132e-05,
+      "rss_at_tail_mib": 31.296875,
+      "peak_rss_mib": 31.40625,
+      "callbacks": {
+        "create": 100,
+        "delete": 99,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "candidate",
+      "case": "churn",
+      "n": 100,
+      "trial": 0,
+      "seconds": 0.0054979578126221895,
+      "tail_seconds": 0.0020365410018712282,
+      "tail_callbacks_seconds": 0.0019525832030922174,
+      "finalization_seconds": 8.395779877901077e-05,
+      "rss_at_tail_mib": 31.59375,
+      "peak_rss_mib": 31.796875,
+      "callbacks": {
+        "create": 100,
+        "delete": 99,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "churn",
+      "n": 10000,
+      "trial": 0,
+      "seconds": 0.024973041843622923,
+      "tail_seconds": 0.002354959025979042,
+      "tail_callbacks_seconds": 0.0019832090474665165,
+      "finalization_seconds": 0.00037174997851252556,
+      "rss_at_tail_mib": 34.875,
+      "peak_rss_mib": 34.9375,
+      "callbacks": {
+        "create": 10000,
+        "delete": 9999,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "F",
+      "case": "churn",
+      "n": 10000,
+      "trial": 0,
+      "seconds": 0.021380666876211762,
+      "tail_seconds": 0.002742249984294176,
+      "tail_callbacks_seconds": 0.0019185419660061598,
+      "finalization_seconds": 0.0008237080182880163,
+      "rss_at_tail_mib": 34.9375,
+      "peak_rss_mib": 35.0625,
+      "callbacks": {
+        "create": 10000,
+        "delete": 9999,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "candidate",
+      "case": "churn",
+      "n": 10000,
+      "trial": 0,
+      "seconds": 0.02413820894435048,
+      "tail_seconds": 0.0023224169854074717,
+      "tail_callbacks_seconds": 0.0019319579005241394,
+      "finalization_seconds": 0.00039045908488333225,
+      "rss_at_tail_mib": 34.828125,
+      "peak_rss_mib": 35.015625,
+      "callbacks": {
+        "create": 10000,
+        "delete": 9999,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "churn",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.28360225004144013,
+      "tail_seconds": 0.005495040910318494,
+      "tail_callbacks_seconds": 0.0021158328745514154,
+      "finalization_seconds": 0.0033792080357670784,
+      "rss_at_tail_mib": 57.953125,
+      "peak_rss_mib": 61.796875,
+      "callbacks": {
+        "create": 100000,
+        "delete": 99999,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "F",
+      "case": "churn",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.26000291598029435,
+      "tail_seconds": 0.01181000005453825,
+      "tail_callbacks_seconds": 0.0028810419607907534,
+      "finalization_seconds": 0.008928958093747497,
+      "rss_at_tail_mib": 61.265625,
+      "peak_rss_mib": 65.15625,
+      "callbacks": {
+        "create": 100000,
+        "delete": 99999,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "candidate",
+      "case": "churn",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.2802457921206951,
+      "tail_seconds": 0.005506000015884638,
+      "tail_callbacks_seconds": 0.001988332951441407,
+      "finalization_seconds": 0.0035176670644432306,
+      "rss_at_tail_mib": 57.9375,
+      "peak_rss_mib": 61.796875,
+      "callbacks": {
+        "create": 100000,
+        "delete": 99999,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "churn",
+      "n": 1000000,
+      "trial": 0,
+      "seconds": 11.35738837509416,
+      "tail_seconds": 0.03273908304981887,
+      "tail_callbacks_seconds": 0.001959749963134527,
+      "finalization_seconds": 0.030779333086684346,
+      "rss_at_tail_mib": 274.109375,
+      "peak_rss_mib": 331.0,
+      "callbacks": {
+        "create": 1000000,
+        "delete": 999999,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "F",
+      "case": "churn",
+      "n": 1000000,
+      "trial": 0,
+      "seconds": 10.717831041896716,
+      "tail_seconds": 0.1275857500731945,
+      "tail_callbacks_seconds": 0.03430545818991959,
+      "finalization_seconds": 0.09328029188327491,
+      "rss_at_tail_mib": 477.28125,
+      "peak_rss_mib": 533.296875,
+      "callbacks": {
+        "create": 1000000,
+        "delete": 999999,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "candidate",
+      "case": "churn",
+      "n": 1000000,
+      "trial": 0,
+      "seconds": 12.814399458002299,
+      "tail_seconds": 0.030928082996979356,
+      "tail_callbacks_seconds": 0.0019471251871436834,
+      "finalization_seconds": 0.028980957809835672,
+      "rss_at_tail_mib": 274.34375,
+      "peak_rss_mib": 331.125,
+      "callbacks": {
+        "create": 1000000,
+        "delete": 999999,
+        "tail": 1000,
+        "snapshot": 1
+      },
+      "checkpoints": false,
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "churn_checkpoints",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.4723822090309113,
+      "tail_seconds": 0.005911916960030794,
+      "tail_callbacks_seconds": 0.0058061250019818544,
+      "finalization_seconds": 0.0001057919580489397,
+      "rss_at_tail_mib": 51.40625,
+      "peak_rss_mib": 55.234375,
+      "callbacks": {
+        "create": 100000,
+        "delete": 99999,
+        "tail": 1000,
+        "snapshot": 101001
+      },
+      "checkpoints": true,
+      "status": "passed"
+    },
+    {
+      "build": "F",
+      "case": "churn_checkpoints",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.42763662501238286,
+      "tail_seconds": 0.006315042031928897,
+      "tail_callbacks_seconds": 0.006217292044311762,
+      "finalization_seconds": 9.774998761713505e-05,
+      "rss_at_tail_mib": 54.265625,
+      "peak_rss_mib": 58.15625,
+      "callbacks": {
+        "create": 100000,
+        "delete": 99999,
+        "tail": 1000,
+        "snapshot": 101001
+      },
+      "checkpoints": true,
+      "status": "passed"
+    },
+    {
+      "build": "candidate",
+      "case": "churn_checkpoints",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.47663933294825256,
+      "tail_seconds": 0.006325124995782971,
+      "tail_callbacks_seconds": 0.0062079590279608965,
+      "finalization_seconds": 0.00011716596782207489,
+      "rss_at_tail_mib": 51.1875,
+      "peak_rss_mib": 55.046875,
+      "callbacks": {
+        "create": 100000,
+        "delete": 99999,
+        "tail": 1000,
+        "snapshot": 101001
+      },
+      "checkpoints": true,
+      "status": "passed"
+    }
+  ],
+  "note": "Screening only; three samples cannot establish small gains. Timers include dataflow startup; RSS includes Python input storage."
+}

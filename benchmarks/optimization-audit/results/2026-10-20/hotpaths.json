@@ -1,0 +1,419 @@
+{
+  "budget_seconds": 55,
+  "seconds": 30.49372816691175,
+  "build_files_sha256": {
+    "A": {
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/main-upstream-clone/pysrc/bytewax/operators/__init__.py": "e363f2d677691ec1c58420703363014cd3d1d39443090b899b685c8ec967def4",
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/main-upstream-clone/pysrc/bytewax/operators/windowing.py": "671cf16917f4b7105cde9be8f70b38c0f98eb38f4177f14544bd33f6d536eebe",
+      "/Users/nb/conductor/workspaces/bytewax/paris/.context/main-upstream-clone/pysrc/bytewax/_bytewax.cpython-312-darwin.so": "699ce3e04e5e82ebf4f2bb80183d73b41c811bc022b57901fd6fcee311af72ab"
+    },
+    "transfer": {
+      "/Users/nb/conductor/workspaces/bytewax/paris/pysrc/bytewax/operators/__init__.py": "8e4eec77c60ca6e6bb6a4719b757b1900d97d90c3d73d8d5562eb09716fe8554",
+      "/Users/nb/conductor/workspaces/bytewax/paris/pysrc/bytewax/operators/windowing.py": "de89d94b1842d061415acfc679328732995861dcb47009124cdb91d35986689e",
+      "/Users/nb/conductor/workspaces/bytewax/paris/pysrc/bytewax/_bytewax.cpython-312-darwin.so": "62648b410dc6c132a8b1f1ce672a67049600f173925295287650f4b456a83cbf"
+    }
+  },
+  "rows": [
+    {
+      "build": "A",
+      "case": "count_dense_file",
+      "n": 10,
+      "trial": 0,
+      "seconds": 0.0027721249498426914,
+      "peak_rss_mib": 34.234375,
+      "digest": "02fd1b324468bf909383fe2ab1bb548c5e6825db51f924fe61a28afbd344f9de",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "count_dense_file",
+      "n": 10,
+      "trial": 0,
+      "seconds": 0.0031210838351398706,
+      "peak_rss_mib": 34.140625,
+      "digest": "02fd1b324468bf909383fe2ab1bb548c5e6825db51f924fe61a28afbd344f9de",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "count_dense_file",
+      "n": 100,
+      "trial": 0,
+      "seconds": 0.002888374961912632,
+      "peak_rss_mib": 34.09375,
+      "digest": "42fcac33a8751d1ea7e5d1072897c05846f27513927131a9749e4b06c63f3e8b",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "count_dense_file",
+      "n": 100,
+      "trial": 0,
+      "seconds": 0.0012257080525159836,
+      "peak_rss_mib": 34.234375,
+      "digest": "42fcac33a8751d1ea7e5d1072897c05846f27513927131a9749e4b06c63f3e8b",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "count_dense_file",
+      "n": 10000,
+      "trial": 0,
+      "seconds": 0.1859159169252962,
+      "peak_rss_mib": 36.171875,
+      "digest": "be05b517c02137b53e8fb0ca6c7c626d0946da755d1ea82b01562bda3dacab92",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "count_dense_file",
+      "n": 10000,
+      "trial": 0,
+      "seconds": 0.007645917125046253,
+      "peak_rss_mib": 35.890625,
+      "digest": "be05b517c02137b53e8fb0ca6c7c626d0946da755d1ea82b01562bda3dacab92",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "count_dense_file",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 1.8687988750170916,
+      "peak_rss_mib": 50.53125,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "count_dense_file",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.06426412519067526,
+      "peak_rss_mib": 50.578125,
+      "digest": "39c1632dcf097bbc049fc59d770200d01b219168358b1823e527b3cecc593fd0",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "count_dense_file",
+      "n": 1000000,
+      "trial": 0,
+      "seconds": 18.23823512508534,
+      "peak_rss_mib": 197.4375,
+      "digest": "b1ac400ff076151eb1ae9dbeff46b4c684c365e7d340b9cf5b862a5741502be0",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "count_dense_file",
+      "n": 1000000,
+      "trial": 0,
+      "seconds": 0.7281730000395328,
+      "peak_rss_mib": 197.375,
+      "digest": "b1ac400ff076151eb1ae9dbeff46b4c684c365e7d340b9cf5b862a5741502be0",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.096807791152969,
+      "peak_rss_mib": 81.171875,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.08624933287501335,
+      "peak_rss_mib": 81.03125,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 0.08224962512031198,
+      "peak_rss_mib": 81.21875,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 0.08882874995470047,
+      "peak_rss_mib": 81.078125,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 0.0884488329757005,
+      "peak_rss_mib": 81.296875,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "stateful_1000keys",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 0.0810306251514703,
+      "peak_rss_mib": 80.9375,
+      "digest": "9c9634364971e13e73def38d4def4e2d75d295118cddf7c1f9e35ed1267dbc15",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "stateful_100000keys",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.23075041617266834,
+      "peak_rss_mib": 118.5625,
+      "digest": "116ff6601ad11974194d530863fb37adb2980921935e57fd512a88b87608b783",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "stateful_100000keys",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.20889258291572332,
+      "peak_rss_mib": 110.921875,
+      "digest": "116ff6601ad11974194d530863fb37adb2980921935e57fd512a88b87608b783",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "stateful_100000keys",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 0.21847279206849635,
+      "peak_rss_mib": 111.109375,
+      "digest": "116ff6601ad11974194d530863fb37adb2980921935e57fd512a88b87608b783",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "stateful_100000keys",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 0.2490769161377102,
+      "peak_rss_mib": 118.578125,
+      "digest": "116ff6601ad11974194d530863fb37adb2980921935e57fd512a88b87608b783",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "stateful_100000keys",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 0.24970774981193244,
+      "peak_rss_mib": 118.578125,
+      "digest": "116ff6601ad11974194d530863fb37adb2980921935e57fd512a88b87608b783",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "stateful_100000keys",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 0.22738425014540553,
+      "peak_rss_mib": 110.90625,
+      "digest": "116ff6601ad11974194d530863fb37adb2980921935e57fd512a88b87608b783",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "filter_batch1",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.14131120801903307,
+      "peak_rss_mib": 33.359375,
+      "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "filter_batch1",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.10634608403779566,
+      "peak_rss_mib": 33.375,
+      "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "filter_batch1",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 0.09818604192696512,
+      "peak_rss_mib": 33.484375,
+      "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "filter_batch1",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 0.1084561669267714,
+      "peak_rss_mib": 33.3125,
+      "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "filter_batch1",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 0.10735704191029072,
+      "peak_rss_mib": 33.40625,
+      "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "filter_batch1",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 0.1043972079642117,
+      "peak_rss_mib": 33.359375,
+      "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "queue_mixed",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.36423099995590746,
+      "peak_rss_mib": 44.328125,
+      "digest": "371f518555a967c93ab99ebeb38802e67a28b92f7a00e4cfba10c86086d8a561",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "queue_mixed",
+      "n": 100000,
+      "trial": 0,
+      "seconds": 0.2264645411632955,
+      "peak_rss_mib": 43.40625,
+      "digest": "371f518555a967c93ab99ebeb38802e67a28b92f7a00e4cfba10c86086d8a561",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "queue_mixed",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 0.22499070805497468,
+      "peak_rss_mib": 43.421875,
+      "digest": "371f518555a967c93ab99ebeb38802e67a28b92f7a00e4cfba10c86086d8a561",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "queue_mixed",
+      "n": 100000,
+      "trial": 1,
+      "seconds": 0.3665629168972373,
+      "peak_rss_mib": 44.5625,
+      "digest": "371f518555a967c93ab99ebeb38802e67a28b92f7a00e4cfba10c86086d8a561",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "queue_mixed",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 0.3605441669933498,
+      "peak_rss_mib": 44.6875,
+      "digest": "371f518555a967c93ab99ebeb38802e67a28b92f7a00e4cfba10c86086d8a561",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "queue_mixed",
+      "n": 100000,
+      "trial": 2,
+      "seconds": 0.24344962509348989,
+      "peak_rss_mib": 43.4375,
+      "digest": "371f518555a967c93ab99ebeb38802e67a28b92f7a00e4cfba10c86086d8a561",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "trial": 0,
+      "seconds": 0.042831209022551775,
+      "peak_rss_mib": 39.34375,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "trial": 0,
+      "seconds": 0.038908416870981455,
+      "peak_rss_mib": 39.6875,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "trial": 1,
+      "seconds": 0.03880874998867512,
+      "peak_rss_mib": 39.5,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "trial": 1,
+      "seconds": 0.04288854100741446,
+      "peak_rss_mib": 39.671875,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "build": "A",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "trial": 2,
+      "seconds": 0.042460541939362884,
+      "peak_rss_mib": 39.390625,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    },
+    {
+      "build": "transfer",
+      "case": "count_sparse_file",
+      "n": 10000,
+      "trial": 2,
+      "seconds": 0.0393865411169827,
+      "peak_rss_mib": 39.671875,
+      "digest": "0a7103c7686c561dbc08d533f0bb9b9cd858bfe16f3a4beee0fa15c19be0d57f",
+      "status": "passed"
+    }
+  ],
+  "note": "Screening only; three samples cannot establish small gains. Timers include dataflow startup; RSS includes Python input storage."
+}
