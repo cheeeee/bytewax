@@ -1,0 +1,8 @@
+check for merge conflicts................................................Passed
+fix end of files.........................................................Passed
+fix utf-8 byte order marker..............................................Passed
+mixed line ending........................................................Passed
+trim trailing whitespace.................................................Passed
+format Python............................................................Passed
+format Markdown code blocks..........................(no files to check)Skipped
+format Rust..............................................................Passed

@@ -1,0 +1,60 @@
+   Compiling bytewax v0.21.1 (/Users/nb/conductor/workspaces/bytewax/paris)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.26s
+     Running unittests src/lib.rs (target/debug/deps/bytewax-40346cf647565618)
+
+running 1 test
+no_provider: exit status: 0
+log_only: exit status: 101
+
+running 1 test
+test observability_tests::observability_contract ... FAILED
+
+failures:
+
+failures:
+    observability_tests::observability_contract
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+
+thread 'observability_tests::observability_contract' panicked at src/observability_tests.rs:65:5:
+assertion `left == right` failed: span-to-log output changed
+  left: ["INFO bytewax::audit body executed"]
+ right: ["DEBUG bytewax::audit operator; step=\"audit\"", "TRACE tracing::span::active -> operator;", "TRACE bytewax::audit partition; key=\"k\"", "TRACE tracing::span::active -> partition;", "INFO bytewax::audit body executed", "TRACE tracing::span::active <- partition;", "TRACE tracing::span -- partition;", "TRACE tracing::span::active <- operator;", "TRACE tracing::span -- operator;"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+global_trace: exit status: 0
+global_error: exit status: 0
+scoped_trace: exit status: 0
+builtin_metrics: exit status: 0
+external_metrics: exit status: 101
+
+running 1 test
+test observability_tests::observability_contract ... FAILED
+
+failures:
+
+failures:
+    observability_tests::observability_contract
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+
+thread 'observability_tests::observability_contract' panicked at src/observability_tests.rs:120:10:
+duration metric was not emitted
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+thread 'observability_tests::observability_contract' panicked at src/observability_tests.rs:166:5:
+failed cases: ["log_only", "external_metrics"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test observability_tests::observability_contract ... FAILED
+
+failures:
+
+failures:
+    observability_tests::observability_contract
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `--lib`

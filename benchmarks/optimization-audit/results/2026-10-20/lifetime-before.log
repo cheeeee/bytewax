@@ -1,0 +1,104 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.13, pytest-9.1.1, pluggy-1.5.0
+codspeed: 5.0.3 (disabled, mode: walltime, callgraph: not supported, timer_resolution: 41.7ns)
+benchmark: 4.0.0 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /Users/nb/conductor/workspaces/bytewax/paris
+configfile: pyproject.toml
+plugins: codspeed-5.0.3, anyio-4.14.2, typeguard-4.3.0, benchmark-4.0.0
+collected 8 items / 6 deselected / 2 selected
+
+pytests/operators/test_stateful_flat_map.py FF                           [100%]
+
+=================================== FAILURES ===================================
+____________ test_stateful_flat_map_releases_replaced_state[False] _____________
+
+discard = False
+
+    @mark.parametrize("discard", [False, True])
+    def test_stateful_flat_map_releases_replaced_state(discard):
+        # An emitted generator may observe state lifetime. Retained replacements
+        # release the old state before consuming output; discard releases it after.
+        def exercise(batched):
+            class State:
+                pass
+
+            state = State()
+            old = weakref.ref(state)
+            seen = []
+
+            def mapper(_state, value):
+                seen.append(("mapper", value, old() is not None))
+
+                def output():
+                    seen.append(("output", value, old() is not None))
+                    yield value
+
+                return (None if discard else value), output()
+
+            if batched:
+                logic = _StatefulFlatMapLogic("audit", mapper, state).as_batch_logic()
+            else:
+                logic = _StatefulLogic(
+                    _StatefulFlatMapLogic("audit", mapper, state),
+                    lambda s: _StatefulFlatMapLogic("audit", mapper, s),
+                )
+            del state
+            assert logic.on_batch([1, 2]) == ([1, 2], discard)
+            assert old() is None
+            return seen
+
+>       assert exercise(True) == exercise(False)
+E       AssertionError: assert [('mapper', 1...ut', 2, True)] == [('mapper', 1...t', 2, False)]
+E
+E         At index 1 diff: ('output', 1, True) != ('output', 1, False)
+E         Use -v to get more diff
+
+pytests/operators/test_stateful_flat_map.py:49: AssertionError
+_____________ test_stateful_flat_map_releases_replaced_state[True] _____________
+
+discard = True
+
+    @mark.parametrize("discard", [False, True])
+    def test_stateful_flat_map_releases_replaced_state(discard):
+        # An emitted generator may observe state lifetime. Retained replacements
+        # release the old state before consuming output; discard releases it after.
+        def exercise(batched):
+            class State:
+                pass
+
+            state = State()
+            old = weakref.ref(state)
+            seen = []
+
+            def mapper(_state, value):
+                seen.append(("mapper", value, old() is not None))
+
+                def output():
+                    seen.append(("output", value, old() is not None))
+                    yield value
+
+                return (None if discard else value), output()
+
+            if batched:
+                logic = _StatefulFlatMapLogic("audit", mapper, state).as_batch_logic()
+            else:
+                logic = _StatefulLogic(
+                    _StatefulFlatMapLogic("audit", mapper, state),
+                    lambda s: _StatefulFlatMapLogic("audit", mapper, s),
+                )
+            del state
+            assert logic.on_batch([1, 2]) == ([1, 2], discard)
+            assert old() is None
+            return seen
+
+>       assert exercise(True) == exercise(False)
+E       AssertionError: assert [('mapper', 1...ut', 2, True)] == [('mapper', 1...t', 2, False)]
+E
+E         At index 2 diff: ('mapper', 2, True) != ('mapper', 2, False)
+E         Use -v to get more diff
+
+pytests/operators/test_stateful_flat_map.py:49: AssertionError
+=========================== short test summary info ============================
+FAILED pytests/operators/test_stateful_flat_map.py::test_stateful_flat_map_releases_replaced_state[False]
+FAILED pytests/operators/test_stateful_flat_map.py::test_stateful_flat_map_releases_replaced_state[True]
+======================= 2 failed, 6 deselected in 0.04s ========================

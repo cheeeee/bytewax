@@ -1,0 +1,56 @@
+   Compiling bytewax v0.21.1 (/Users/nb/conductor/workspaces/bytewax/paris)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.71s
+     Running unittests src/lib.rs (target/debug/deps/bytewax-40346cf647565618)
+
+running 10 tests
+test inputs::test_epochs_per_zero ... ok
+test inputs::test_epochs_per ... ok
+test timely::worker_count_iter_works ... ok
+test recovery::migrations_valid ... ok
+test recovery::resume_from_all_explict_fronts ... ok
+test recovery::resume_from_default_fronts ... ok
+test recovery::resume_from_only_parts ... ok
+test recovery::gc_leaves_only_final_snap ... ok
+test recovery::resume_from_inconsistent_error ... ok
+test observability_tests::observability_contract ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests bytewax
+warning: expected `=`, found `}`
+   --> src/run.rs:72:1
+    |
+72  | / /// Execute a dataflow in the current thread.
+73  | | ///
+74  | | /// Blocks until execution is complete.
+75  | | ///
+...   |
+108 | | /// :type recovery_config:
+109 | | ///     typing.Optional[bytewax.recovery.RecoveryConfig]
+    | |________________________________________________________^
+    |
+    = note: `#[warn(rustdoc::invalid_codeblock_attributes)]` on by default
+
+warning: expected `=`, found `}`
+   --> src/run.rs:179:1
+    |
+179 | / /// Execute a dataflow in the current process as part of a cluster.
+180 | | ///
+181 | | /// This is only used for unit testing. See `bytewax.run`.
+182 | | ///
+...   |
+233 | | ///
+234 | | /// :type worker_count_per_proc: int
+    | |____________________________________^
+
+warning: 2 warnings emitted
+
+
+running 5 tests
+test src/errors.rs - errors::PythonException::raise (line 25) ... ignored
+test src/errors.rs - errors::PythonException::raise_with (line 44) ... ignored
+test src/errors.rs - errors::PythonException::reraise (line 64) ... ignored
+test src/errors.rs - errors::PythonException::reraise_with (line 87) ... ignored
+test src/macros.rs - macros::try_unwrap (line 17) ... ok
+
+test result: ok. 1 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.35s
